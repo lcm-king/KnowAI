@@ -1,0 +1,1 @@
+import{I as r}from"./index-BCqAWjiG.js";function a(e){return r.post("/ai/generate_quiz",e)}function o(e){return r.post("/ai/grade_homework",e)}function n(e){return r.post("/ai/chat",{message:e})}export{o as a,n as c,a as g};

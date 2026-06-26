@@ -1,0 +1,133 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: knowai_mysql
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-knowai}
+      MYSQL_USER: ${MYSQL_USER:-knowai}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-knowai_pass}
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - knowai_net
+
+  mongodb:
+    image: mongo:6
+    container_name: knowai_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:-knowai}
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - knowai_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: knowai_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - knowai_net
+
+  elasticsearch:
+    image: elasticsearch:8.10.2
+    container_name: knowai_elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - knowai_net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: knowai_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-knowai}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-knowai_pass}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - knowai_net
+
+  backend:
+    build:
+      context: ./knowai_backend
+      dockerfile: Dockerfile
+    container_name: knowai_backend
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      TZ: Asia/Shanghai
+      APP_ENV: production
+      DEBUG: "false"
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MONGODB_URL: mongodb://mongodb:27017
+      REDIS_URL: redis://redis:6379/0
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+    depends_on:
+      - mysql
+      - mongodb
+      - redis
+      - elasticsearch
+      - rabbitmq
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - knowai_net
+
+  frontend:
+    build:
+      context: ./knowai_frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: knowai_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    networks:
+      - knowai_net
+
+volumes:
+  mysql_data:
+    name: knowai_mysql_data
+    external: true
+  mongo_data:
+    name: knowai_mongo_data
+    external: true
+  redis_data:
+    name: knowai_redis_data
+    external: true
+  es_data:
+    name: knowai_es_data
+    external: true
+  rabbitmq_data:
+    name: knowai_rabbitmq_data
+    external: true
+  uploads_data:
+    name: knowai_uploads_data
+
+networks:
+  knowai_net:
+    driver: bridge

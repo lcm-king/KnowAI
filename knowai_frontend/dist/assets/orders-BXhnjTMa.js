@@ -1,0 +1,1 @@
+import{I as e}from"./index-BCqAWjiG.js";function a(r){return e.post("/orders/create",{sku_ids:r})}function n(r){return e.get("/orders",{params:r})}function o(r){return e.get(`/orders/${r}`)}function c(r,t){return e.post("/pay/create",{order_sn:r,pay_method:t})}export{c as a,a as c,o as g,n as l};

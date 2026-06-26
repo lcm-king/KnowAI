@@ -1,0 +1,35 @@
+# 开发环境覆盖配置 —— docker compose up 自动合并此文件
+# 后端: uvicorn --reload 热重载；前端: vite dev server HMR
+# 生产部署时用 `docker compose -f docker-compose.yml up -d` 跳过此文件
+
+services:
+  backend:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      APP_ENV: development
+      DEBUG: "true"
+      ALLOWED_ORIGINS: '["http://localhost:5173","http://127.0.0.1:5173","http://localhost:8080","http://localhost:3000"]'
+    volumes:
+      - ./knowai_backend:/app
+      - uploads_data:/app/uploads
+    # 源码挂载后，容器内 /app 即宿主机代码，uvicorn --reload 监听变化自动重启
+
+  frontend:
+    build:
+      context: ./knowai_frontend
+      dockerfile: Dockerfile.dev
+    image: ai-frontend:dev
+    working_dir: /app
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./knowai_frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=/api
+    # 匿名卷 /app/node_modules 防止宿主机的 node_modules 覆盖容器内安装的依赖
+
+volumes:
+  uploads_data:
+    name: knowai_uploads_data

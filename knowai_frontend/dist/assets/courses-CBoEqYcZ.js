@@ -1,0 +1,1 @@
+import{I as e}from"./index-BCqAWjiG.js";function t(s){return e.get("/courses",{params:s})}function u(s){return e.get(`/courses/${s}`)}function n(s){return e.get(`/courses/${s}/skus`)}function o(){return e.get("/courses/my-learning")}export{n as a,o as b,u as g,t as l};
