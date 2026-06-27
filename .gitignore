@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.docker.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+knowai_backend/__pycache__/
+
+# Logs
+*.log
+
+# Uploads
+uploads/
+
+# Chroma vector DB
+chroma_db/
+knowai_backend/chroma_db/
