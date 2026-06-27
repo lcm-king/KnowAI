@@ -2,6 +2,9 @@
   <div class="container">
     <h1 class="page-title">支付订单</h1>
     <div class="panel">
+      <div v-if="allOrderSns.length > 1" class="multi-badge">
+        共 {{ allOrderSns.length }} 笔订单，当前第 {{ currentIndex + 1 }} 笔
+      </div>
       <div v-if="orderAmount" class="amount-row">
         <span class="amount-label">支付金额：</span>
         <span class="amount-value">¥{{ orderAmount }}</span>
@@ -13,7 +16,7 @@
       <div class="pay-box">
         <el-button v-if="!payInfo" type="primary" @click="pay" :loading="loading">去支付</el-button>
 
-        <p v-if="paid" class="success-hint">支付成功！</p>
+        <p v-if="paid" class="success-hint">{{ allPaid ? '全部支付成功！' : '支付成功！' }}</p>
         <p v-else-if="payInfo?.mock && method === 'wechat'" class="mock-hint">微信支付</p>
         <p v-else-if="payInfo && !payInfo.qr_code_url && !payInfo?.mock" class="error">创建支付失败，请重试</p>
 
@@ -28,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createPay, getOrder } from '@/api/orders'
 import { request } from '@/api/request'
@@ -41,6 +44,13 @@ const loading = ref(false)
 const paid = ref(false)
 const orderAmount = ref<string>('')
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const allOrderSns = computed(() => {
+  const sns = route.query.sns as string | undefined
+  return sns ? sns.split(',') : [String(route.params.orderSn)]
+})
+const currentIndex = computed(() => allOrderSns.value.indexOf(route.params.orderSn as string))
+const allPaid = ref(false)
 
 onMounted(async () => {
   try {
@@ -70,7 +80,15 @@ async function startPoll() {
         paid.value = true
         if (pollTimer) clearInterval(pollTimer)
         pollTimer = null
-        setTimeout(() => router.push('/my-courses'), 1500)
+        // Check if there are more orders to pay
+        const sns = allOrderSns.value
+        const idx = sns.indexOf(route.params.orderSn as string)
+        if (idx >= 0 && idx < sns.length - 1) {
+          setTimeout(() => router.push(`/pay/${sns[idx + 1]}?sns=${sns.join(',')}`), 1000)
+        } else {
+          allPaid.value = true
+          setTimeout(() => router.push('/my-courses'), 1500)
+        }
       }
     } catch {
       // ignore poll errors
@@ -90,6 +108,16 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 14px;
   align-items: flex-start;
+}
+.multi-badge {
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  background: var(--primary-fixed, #e8f4fd);
+  color: var(--primary, #409eff);
+  border-radius: var(--radius, 6px);
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-block;
 }
 .amount-row {
   margin-bottom: 16px;

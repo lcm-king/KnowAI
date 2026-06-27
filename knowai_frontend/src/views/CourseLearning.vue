@@ -74,6 +74,7 @@
                   :src="currentLesson.video_url"
                   controls
                   class="video-player"
+                  @timeupdate="onTimeUpdate"
                 >
                   您的浏览器不支持视频播放
                 </video>
@@ -138,10 +139,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getCourse, getCourseChapters, type ChapterData, type LessonData } from '@/api/courses'
+import { getCourse, getCourseChapters, getCourseProgress, updateLessonProgress, type ChapterData, type LessonData } from '@/api/courses'
 
 const route = useRoute()
 const loading = ref(true)
@@ -151,6 +152,11 @@ const chapters = ref<ChapterData[]>([])
 const currentLesson = ref<LessonData | null>(null)
 const expandedChapters = ref(new Set<number>())
 const showCourseVideo = ref(false)
+const videoElement = ref<HTMLVideoElement | null>(null)
+
+// 进度保存间隔(秒)
+const PROGRESS_INTERVAL = 25
+let lastProgressSave = 0
 
 const totalLessons = computed(() =>
   chapters.value.reduce((sum, ch) => sum + ch.lessons.length, 0)
@@ -172,6 +178,7 @@ function toggleChapter(id: number) {
 
 function selectLesson(lesson: LessonData) {
   currentLesson.value = lesson
+  lastProgressSave = 0
   showCourseVideo.value = false
 }
 
@@ -181,6 +188,25 @@ function formatDuration(seconds: number) {
   const s = seconds % 60
   if (m === 0) return `${s}秒`
   return `${m}分${s > 0 ? s + '秒' : ''}`
+}
+
+// 视频进度上报:每 25 秒保存一次
+async function onTimeUpdate(e: Event) {
+  const video = e.target as HTMLVideoElement
+  if (!video || !currentLesson.value || !course.value) return
+  const now = Date.now()
+  if (now - lastProgressSave < PROGRESS_INTERVAL * 1000) return
+  lastProgressSave = now
+  try {
+    await updateLessonProgress(
+      course.value.id,
+      currentLesson.value.id,
+      video.currentTime,
+      video.duration || undefined,
+    )
+  } catch {
+    // 静默失败,不影响观看
+  }
 }
 
 onMounted(async () => {
@@ -198,7 +224,24 @@ onMounted(async () => {
     // Expand first chapter by default
     if (chapterData.length > 0) {
       expandedChapters.value.add(chapterData[0].id)
-      // Auto-select first unlocked lesson
+      // Try to restore last viewed lesson from saved progress
+      try {
+        const progress = await getCourseProgress(id)
+        if (progress.last_lesson_id) {
+          for (const ch of chapterData) {
+            const found = ch.lessons.find(l => l.id === progress.last_lesson_id && !l.is_locked)
+            if (found) {
+              currentLesson.value = found
+              // Expand the chapter containing this lesson
+              expandedChapters.value.add(ch.id)
+              return
+            }
+          }
+        }
+      } catch {
+        // ignore, fall through to auto-select first unlocked
+      }
+      // Fallback: auto-select first unlocked lesson
       const firstUnlocked = chapterData[0].lessons.find(l => !l.is_locked)
       if (firstUnlocked) currentLesson.value = firstUnlocked
     }

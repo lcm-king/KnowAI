@@ -157,12 +157,7 @@ async function sendRegisterCode() {
   codeSending.value = true
   try {
     const result = await sendCode({ target })
-    if (result.code) {
-      registerForm.code = result.code
-      ElMessage.success(`验证码已发送（模拟模式），请填写：${result.code}`)
-    } else {
-      ElMessage.success(`验证码已发送至 ${target}`)
-    }
+    ElMessage.success(`验证码已发送至 ${target}`)
     startCodeCountdown(() => { codeSending.value = false })
   } catch {
     // interceptor already showed error
@@ -177,12 +172,7 @@ async function handleSendLoginCode() {
   loginCodeSending.value = true
   try {
     const result = await sendLoginCodeApi({ target })
-    if (result.code) {
-      phoneLogin.code = result.code
-      ElMessage.success(`验证码已发送（模拟模式），请填写：${result.code}`)
-    } else {
-      ElMessage.success(`验证码已发送至 ${target}`)
-    }
+    ElMessage.success(`验证码已发送至 ${target}`)
     startLoginCodeCountdown()
   } catch {
     // interceptor already showed error

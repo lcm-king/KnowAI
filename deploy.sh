@@ -22,9 +22,9 @@ if [ ! -f .env.docker ]; then
     exit 1
 fi
 
-# 3. 重新构建并启动
+# 3. 重新构建并启动（明确指定 production 配置，避免合并 docker-compose.override.yml）
 echo ">>> 重新构建并启动容器..."
-docker-compose up --build -d
+docker-compose -f docker-compose.yml up --build -d
 
 # 4. 清理旧镜像
 echo ">>> 清理旧镜像..."

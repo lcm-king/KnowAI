@@ -82,3 +82,19 @@ export interface ChapterData {
 export function getCourseChapters(courseId: number) {
   return request.get<unknown, ChapterData[]>(`/courses/${courseId}/chapters`)
 }
+
+export function updateLessonProgress(courseId: number, lessonId: number, position: number, duration?: number) {
+  return request.post(`/courses/${courseId}/progress`, { lesson_id: lessonId, position, duration })
+}
+
+export function getCourseProgress(courseId: number) {
+  return request.get<unknown, { learned_lessons: number; progress: number; last_lesson_id: number | null; last_position: number }>(`/courses/${courseId}/progress`)
+}
+
+export function searchCourses(params: Record<string, unknown>) {
+  return request.get<unknown, { total: number; page: number; size: number; items: Array<{ course_id: number; title: string; cover?: string | null; price: number; teacher_name: string; sales: number; highlight?: string[] }> }>('/search/courses', { params })
+}
+
+export function listSeckillCourses() {
+  return request.get<unknown, Course[]>('/courses/seckill')
+}

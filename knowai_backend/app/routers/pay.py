@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,7 +14,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 from app.crud.user_course_crud import grant_courses_for_order
-from app.database import AsyncSessionLocal, get_db
+from app.database import AsyncSessionLocal, get_db, get_redis
 from app.models import CourseSKU, CourseStatus, Order, OrderItem, OrderStatus, User
 from app.schemas import PayCreateRequest, PayCreateResponse, PayNotifyRequest, PayStatusResponse
 from app.services.alipay import create_alipay_order, query_alipay_trade, verify_alipay_notify
@@ -46,7 +47,10 @@ async def get_order_for_pay(db: AsyncSession, user_id: int, order_sn: str) -> Or
     return order
 
 
-async def mark_order_paid(order_sn: str) -> bool:
+async def mark_order_paid(order_sn: str, redis: Redis | None = None) -> bool:
+    if redis is None:
+        from app.database import redis_client
+        redis = redis_client
     async with AsyncSessionLocal() as db:
         async with db.begin():
             result = await db.execute(
@@ -62,7 +66,7 @@ async def mark_order_paid(order_sn: str) -> bool:
                 return order.status in {OrderStatus.paid, OrderStatus.learning}
             order.status = OrderStatus.paid
             order.pay_time = datetime.now()
-            await grant_courses_for_order(db, order)
+            await grant_courses_for_order(db, order, redis=redis)
         return True
 
 
@@ -128,7 +132,10 @@ async def create_pay_order(
 
 
 @router.post("/notify")
-async def pay_notify(payload: PayNotifyRequest) -> dict[str, str]:
+async def pay_notify(
+    payload: PayNotifyRequest,
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> dict[str, str]:
     data = payload.model_dump()
     if payload.pay_method == "wechat" and not verify_wechat_notify(data):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效签名")
@@ -137,7 +144,7 @@ async def pay_notify(payload: PayNotifyRequest) -> dict[str, str]:
     if payload.status != "success":
         return {"message": "ignored"}
 
-    paid = await mark_order_paid(payload.order_sn)
+    paid = await mark_order_paid(payload.order_sn, redis=redis)
     if not paid:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
     return {"message": "success"}

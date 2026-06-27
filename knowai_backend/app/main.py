@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import close_connections, init_db, init_mongo, init_redis
-from app.routers import admin, ai, ai_new, auth, cart, courses, favorite, orders, pay, reviews, search, seckill, teacher, teacher_seckill, upload
+from app.routers import admin, ai, ai_new, auth, cart, courses, favorite, notes, orders, pay, qa, reviews, search, seckill, teacher, teacher_seckill, upload
 from app.tasks.order_expire import scan_expired_orders
 from app.tasks.seckill_consumer import consume_seckill_queue
 from app.tasks.seckill_expire import finish_expired_seckills
@@ -56,6 +56,8 @@ app.include_router(ai.router, prefix=f"{settings.api_prefix}/ai", tags=["AI (dep
 app.include_router(ai_new.router, prefix=f"{settings.api_prefix}/ai", tags=["AI"])
 app.include_router(reviews.router, prefix=f"{settings.api_prefix}/courses", tags=["Course Reviews"])
 app.include_router(upload.router, prefix=f"{settings.api_prefix}/upload", tags=["Upload"])
+app.include_router(notes.router, prefix=f"{settings.api_prefix}/notes", tags=["Notes"])
+app.include_router(qa.router, prefix=f"{settings.api_prefix}/qa", tags=["Q&A"])
 
 # Mount uploads directory for serving static files
 uploads_dir = settings.upload_dir

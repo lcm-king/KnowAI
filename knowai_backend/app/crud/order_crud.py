@@ -1,4 +1,5 @@
 import random
+import secrets
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -10,9 +11,17 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.crud.user_course_crud import grant_courses_for_order
-from app.models import Course, CourseSKU, CourseStatus, Order, OrderItem, OrderStatus, SKUStatus
+from app.models import Course, CourseSKU, CourseStatus, Order, OrderItem, OrderStatus, SeckillActivity, SKUStatus
 
-LOCK_EXPIRE_SECONDS = 3
+LOCK_EXPIRE_SECONDS = 30
+
+# Lua: 仅当锁持有者 token 匹配时才删除,防止误删别人的锁
+_RELEASE_LOCK_SCRIPT = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
 
 
 def generate_order_sn() -> str:
@@ -20,28 +29,32 @@ def generate_order_sn() -> str:
 
 
 def lock_key(sku_id: int) -> str:
-    return f"lock:sku:{sku_id}"
+    return f"lock:order:{sku_id}"
 
 
-async def acquire_sku_locks(redis: Redis, sku_ids: list[int]) -> list[str]:
-    acquired: list[str] = []
+async def acquire_sku_locks(redis: Redis, sku_ids: list[int]) -> list[tuple[str, str]]:
+    """获取 SKU 分布式锁,返回 (key, token) 列表以便安全释放。"""
+    acquired: list[tuple[str, str]] = []
     for sku_id in sorted(set(sku_ids)):
         key = lock_key(sku_id)
-        locked = await redis.set(key, "1", nx=True, ex=LOCK_EXPIRE_SECONDS)
+        token = secrets.token_hex(16)
+        locked = await redis.set(key, token, nx=True, ex=LOCK_EXPIRE_SECONDS)
         if not locked:
-            for acquired_key in acquired:
-                await redis.delete(acquired_key)
+            # 释放已获取的锁
+            for k, t in acquired:
+                await redis.eval(_RELEASE_LOCK_SCRIPT, 1, k, t)
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="当前购买人数过多，请稍后重试")
-        acquired.append(key)
+        acquired.append((key, token))
     return acquired
 
 
-async def release_sku_locks(redis: Redis, keys: list[str]) -> None:
-    if keys:
-        await redis.delete(*keys)
+async def release_sku_locks(redis: Redis, locks: list[tuple[str, str]]) -> None:
+    for key, token in locks:
+        await redis.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
 
 
-async def create_order(db: AsyncSession, redis: Redis, user_id: int, sku_ids: list[int], address_id: int | None) -> Order:
+async def create_orders(db: AsyncSession, redis: Redis, user_id: int, sku_ids: list[int], address_id: int | None) -> list[Order]:
+    """Create one or more orders, grouped by teacher."""
     if len(set(sku_ids)) != len(sku_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不允许重复的 SKU")
 
@@ -68,35 +81,51 @@ async def create_order(db: AsyncSession, redis: Redis, user_id: int, sku_ids: li
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="课程不存在或已下架")
             sku.stock -= 1
 
-        total_amount = sum((sku_map[sku_id].price for sku_id in sku_ids), Decimal("0.00"))
-        order = Order(
-            user_id=user_id,
-            order_sn=generate_order_sn(),
-            total_amount=total_amount,
-            pay_amount=total_amount,
-            expire_time=datetime.now() + timedelta(minutes=settings.order_expire_minutes),
-            address=str(address_id) if address_id is not None else None,
-        )
-        db.add(order)
-        await db.flush()
-
+        # Group SKUs by teacher
+        teacher_groups: dict[int, list[int]] = {}
         for sku_id in sku_ids:
-            db.add(OrderItem(order_id=order.id, sku_id=sku_id, quantity=1, price=sku_map[sku_id].price))
+            teacher_id = sku_map[sku_id].course.teacher_id
+            teacher_groups.setdefault(teacher_id, []).append(sku_id)
+
+        orders: list[Order] = []
+        for teacher_id, t_sku_ids in teacher_groups.items():
+            total_amount = sum((sku_map[sid].price for sid in t_sku_ids), Decimal("0.00"))
+            order = Order(
+                user_id=user_id,
+                order_sn=generate_order_sn(),
+                total_amount=total_amount,
+                pay_amount=total_amount,
+                expire_time=datetime.now() + timedelta(minutes=settings.order_expire_minutes),
+                address=str(address_id) if address_id is not None else None,
+            )
+            db.add(order)
+            await db.flush()
+
+            for sku_id in t_sku_ids:
+                db.add(OrderItem(order_id=order.id, sku_id=sku_id, quantity=1, price=sku_map[sku_id].price))
+
+            orders.append(order)
 
         await db.commit()
-        await db.refresh(order)
 
-        if total_amount == 0:
-            # Free order: auto-grant without payment
-            order.status = OrderStatus.paid
-            order.pay_time = datetime.now()
-            await grant_courses_for_order(db, order)
-            await db.commit()
+        # Auto-grant free orders; set delay for paid ones
+        has_free = False
+        for order in orders:
             await db.refresh(order)
-        else:
-            await redis.setex(f"order:delay:{order.order_sn}", settings.order_expire_minutes * 60, "1")
+            if order.total_amount == 0:
+                has_free = True
+                order.status = OrderStatus.paid
+                order.pay_time = datetime.now()
+                await grant_courses_for_order(db, order, redis=redis)
+            else:
+                await redis.setex(f"order:delay:{order.order_sn}", settings.order_expire_minutes * 60, "1")
 
-        return order
+        if has_free:
+            await db.commit()
+            for order in orders:
+                await db.refresh(order)
+
+        return orders
     except Exception:
         await db.rollback()
         raise
@@ -155,13 +184,23 @@ async def cancel_order_by_sn(db: AsyncSession, user_id: int | None, order_sn: st
         sku_result = await db.execute(select(CourseSKU).where(CourseSKU.id.in_(sku_ids)).with_for_update())
         sku_map = {sku.id: sku for sku in sku_result.scalars().all()}
         for item in order.items:
-            sku_map[item.sku_id].stock += item.quantity
+            if item.sku_id in sku_map:
+                sku_map[item.sku_id].stock += item.quantity
         order.status = OrderStatus.cancelled
 
-        # Restore Redis seckill stock if this was a seckill order
-        if redis is not None and order.seckill_activity_id is not None:
-            await redis.incr(f"seckill:stock:{order.seckill_activity_id}")
-            await redis.srem(f"seckill:purchased:{order.seckill_activity_id}", order.user_id)
+        # Restore seckill stock (DB activity.stock + Redis remaining + purchased set)
+        if order.seckill_activity_id is not None:
+            activity_result = await db.execute(
+                select(SeckillActivity).where(SeckillActivity.id == order.seckill_activity_id).with_for_update()
+            )
+            activity = activity_result.scalar_one_or_none()
+            if activity is not None:
+                total_qty = sum(item.quantity for item in order.items)
+                activity.stock += total_qty
+            if redis is not None:
+                total_qty = sum(item.quantity for item in order.items)
+                await redis.incrby(f"seckill:stock:{order.seckill_activity_id}", total_qty)
+                await redis.srem(f"seckill:purchased:{order.seckill_activity_id}", order.user_id)
 
     result = await db.execute(
         select(Order)
@@ -184,18 +223,5 @@ async def cancel_expired_pending_orders(db: AsyncSession, redis: Redis | None = 
             cancelled_count += 1
         except Exception as e:
             print(f"Failed to cancel expired order {order_sn}: {e}")
-            # Fallback: force-cancel without stock restoration
-            try:
-                result = await db.execute(select(Order).where(Order.order_sn == order_sn).with_for_update())
-                order = result.scalar_one_or_none()
-                if order is not None and order.status == OrderStatus.pending:
-                    order.status = OrderStatus.cancelled
-                    await db.commit()
-                    print(f"Force-cancelled expired order {order_sn}")
-                    cancelled_count += 1
-            except Exception as e2:
-                print(f"Force-cancel also failed for {order_sn}: {e2}")
-                await db.rollback()
-        finally:
-            await db.commit()
+            await db.rollback()
     return cancelled_count

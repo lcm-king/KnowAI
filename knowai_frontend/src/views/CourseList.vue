@@ -94,7 +94,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { listCourses, type Course } from '@/api/courses'
+import { listCourses, searchCourses, type Course } from '@/api/courses'
 import CourseCard from '@/components/CourseCard.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 
@@ -122,15 +122,39 @@ async function load(nextPage = page.value) {
   page.value = nextPage
   loading.value = true
   try {
-    const result = await listCourses({
-      page: page.value,
-      page_size: pageSize,
-      keyword: keyword.value || undefined,
-      category: category.value || undefined,
-      price_sort: priceSort.value || undefined,
-    })
-    courses.value = result.items
-    total.value = result.total
+    if (keyword.value) {
+      // Use ES-powered search for keyword queries
+      const result = await searchCourses({
+        keyword: keyword.value,
+        category: category.value || undefined,
+        sort: priceSort.value === 'asc' ? 'price_asc' : priceSort.value === 'desc' ? 'price_desc' : undefined,
+        page: page.value,
+        size: pageSize,
+      })
+      courses.value = result.items.map((item: { course_id: number; title: string; cover?: string | null; price: number; teacher_name: string; sales: number; highlight?: string[] }) => ({
+        id: item.course_id,
+        title: item.title,
+        cover: item.cover,
+        learn_count: item.sales,
+        rating: 0,
+        total_hours: 0,
+        teacher_id: 0,
+        status: 'published',
+        teacher: { id: 0, name: item.teacher_name, avatar: null },
+        skus: [{ id: 0, course_id: item.course_id, sku_name: null, price: String(item.price), stock: 0, validity_days: 365, status: 'on' }] as Course['skus'],
+      })) as unknown as Course[]
+      total.value = result.total
+    } else {
+      const result = await listCourses({
+        page: page.value,
+        page_size: pageSize,
+        keyword: keyword.value || undefined,
+        category: category.value || undefined,
+        price_sort: priceSort.value || undefined,
+      })
+      courses.value = result.items
+      total.value = result.total
+    }
   } catch {
     courses.value = []
     total.value = 0

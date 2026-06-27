@@ -76,10 +76,20 @@ class ApplyTeacherRequest(BaseModel):
     bio: str | None = None
 
 
+class PasswordChangeRequest(BaseModel):
+    old_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class AvatarUpdateRequest(BaseModel):
+    avatar: str = Field(min_length=1, max_length=500)
+
+
 class UserRead(UserBase):
     id: int
     role: UserRole
     teacher_id: int | None = None
+    avatar: str | None = None
     is_active: bool
     created_at: datetime
 
@@ -252,6 +262,8 @@ class OrderOut(BaseModel):
     total_amount: Decimal
     pay_amount: Decimal
     status: OrderStatus
+    user_id: int | None = None
+    username: str | None = None
     expire_time: datetime
     pay_time: datetime | None = None
     created_at: datetime
@@ -262,6 +274,7 @@ class OrderOut(BaseModel):
 
 class OrderCreateResponse(BaseModel):
     order_sn: str
+    order_sns: list[str] = []
     total_amount: Decimal
     expire_time: datetime
     direct_granted: bool = False
@@ -411,6 +424,93 @@ class MyLearningCourseItem(BaseModel):
 class MyLearningResponse(BaseModel):
     total: int
     items: list[MyLearningCourseItem]
+
+
+class LessonProgressUpdate(BaseModel):
+    lesson_id: int
+    position: float = Field(ge=0)
+    duration: float | None = Field(default=None, ge=0)
+
+
+class LessonProgressRead(BaseModel):
+    lesson_id: int
+    position: float
+    duration: float | None = None
+    updated_at: datetime | None = None
+
+
+class CourseProgressSummary(BaseModel):
+    learned_lessons: int
+    progress: int
+    last_lesson_id: int | None = None
+    last_position: float = 0.0
+
+
+# ── Notes & Q&A ──
+
+class NoteCreate(BaseModel):
+    lesson_id: int
+    course_id: int
+    content: str = Field(min_length=1, max_length=5000)
+    timestamp: float = Field(default=0, ge=0)
+
+
+class NoteUpdate(BaseModel):
+    content: str = Field(min_length=1, max_length=5000)
+    timestamp: float = Field(default=0, ge=0)
+
+
+class NoteRead(BaseModel):
+    id: str
+    lesson_id: int
+    course_id: int
+    content: str
+    timestamp: float
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class QuestionCreate(BaseModel):
+    course_id: int
+    lesson_id: int | None = None
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=5000)
+
+
+class QuestionRead(BaseModel):
+    id: int
+    course_id: int
+    lesson_id: int | None = None
+    user_id: int
+    username: str | None = None
+    title: str
+    content: str
+    created_at: datetime
+    answer_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnswerCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=5000)
+
+
+class AnswerRead(BaseModel):
+    id: int
+    question_id: int
+    user_id: int
+    username: str | None = None
+    content: str
+    is_teacher_answer: bool = False
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class QuestionDetailRead(QuestionRead):
+    answers: list[AnswerRead] = []
 
 
 class AdminUserOut(BaseModel):

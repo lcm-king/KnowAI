@@ -132,6 +132,33 @@ async def list_public_courses(
     return await paginate_courses(db, stmt, page, page_size)
 
 
+async def list_seckill_courses(db: AsyncSession, limit: int = 10) -> list[Course]:
+    """List published courses that have active seckill activities."""
+    now = datetime.now()
+    result = await db.execute(
+        select(Course)
+        .join(CourseSKU, CourseSKU.course_id == Course.id)
+        .join(SeckillActivity, SeckillActivity.sku_id == CourseSKU.id)
+        .where(
+            Course.status == CourseStatus.published,
+            SeckillActivity.status == SeckillStatus.active,
+            SeckillActivity.start_time <= now,
+            SeckillActivity.end_time > now,
+        )
+        .options(selectinload(Course.teacher), selectinload(Course.skus))
+        .order_by(SeckillActivity.end_time.asc())
+        .limit(limit)
+    )
+    # Deduplicate by course id
+    seen: set[int] = set()
+    courses: list[Course] = []
+    for course in result.scalars().all():
+        if course.id not in seen:
+            seen.add(course.id)
+            courses.append(course)
+    return courses
+
+
 async def get_public_course_detail(db: AsyncSession, course_id: int) -> Course | None:
     result = await db.execute(
         select(Course)

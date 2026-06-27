@@ -355,7 +355,7 @@ const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const chartRef = ref<HTMLDivElement>()
 let chartInstance: echarts.ECharts | null = null
-const form = ref({ title: '', category: '', description: '', cover: '', video_url: '', total_hours: 0, price: null, stock: 0 })
+const form = ref({ title: '', category: '', description: '', cover: '', video_url: '', total_hours: 0, price: null as number | null, stock: 0 })
 
 const courses = ref<TeacherCourse[]>([])
 const loadingCourses = ref(true)

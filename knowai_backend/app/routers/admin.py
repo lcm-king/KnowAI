@@ -3,13 +3,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_admin
 from app.crud import course_crud, user_crud
 from app.database import get_db, get_redis
+from app.tasks.sync_es import delete_course_from_es, sync_course_to_es
 from app.models import (
     Chapter,
     Course,
@@ -43,6 +44,9 @@ from app.schemas import (
     AdminUserStatusUpdate,
     CourseKnowledgeRead,
     CourseRead,
+    OrderItemOut,
+    OrderListResponse,
+    OrderOut,
     ReviewRead,
 )
 
@@ -168,6 +172,7 @@ async def approve_course(
     course_id: int,
     current_admin: Annotated[User, Depends(get_current_admin)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis)],
 ) -> dict[str, str]:
     course = await db.get(Course, course_id)
     if course is None:
@@ -176,6 +181,8 @@ async def approve_course(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="课程不是待审核状态")
     course.status = CourseStatus.published
     await db.commit()
+    await redis.delete("homepage:courses", f"course:detail:{course_id}")
+    await sync_course_to_es(course_id, db)
     return {"status": "ok", "course_id": str(course_id), "new_status": CourseStatus.published.value}
 
 
@@ -184,6 +191,7 @@ async def reject_course(
     course_id: int,
     current_admin: Annotated[User, Depends(get_current_admin)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis)],
 ) -> dict[str, str]:
     course = await db.get(Course, course_id)
     if course is None:
@@ -192,6 +200,8 @@ async def reject_course(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="课程不是待审核状态")
     course.status = CourseStatus.draft
     await db.commit()
+    await redis.delete("homepage:courses", f"course:detail:{course_id}")
+    await delete_course_from_es(course_id)
     return {"status": "ok", "course_id": str(course_id), "new_status": CourseStatus.draft.value}
 
 
@@ -602,3 +612,103 @@ async def admin_delete_user(
         await user_crud.hard_delete_user(db, user)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# ── Admin Order Management ──
+
+
+@router.get("/orders", response_model=OrderListResponse)
+async def admin_list_orders(
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    status_filter: OrderStatus | None = Query(default=None, alias="status"),
+    order_sn: str | None = None,
+) -> OrderListResponse:
+    stmt = select(Order)
+    if status_filter is not None:
+        stmt = stmt.where(Order.status == status_filter)
+    if order_sn:
+        stmt = stmt.where(Order.order_sn.like(f"%{order_sn}%"))
+    total_result = await db.execute(select(func.count()).select_from(stmt.order_by(None).subquery()))
+    total = total_result.scalar_one()
+    result = await db.execute(
+        stmt.order_by(Order.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .options(selectinload(Order.items).selectinload(OrderItem.sku).selectinload(CourseSKU.course), selectinload(Order.user))
+    )
+    orders = list(result.scalars().all())
+    return OrderListResponse(
+        total=total,
+        items=[
+            OrderOut(
+                id=o.id,
+                order_sn=o.order_sn,
+                total_amount=o.total_amount,
+                pay_amount=o.pay_amount,
+                status=o.status,
+                user_id=o.user_id,
+                username=o.user.username if o.user else None,
+                expire_time=o.expire_time,
+                pay_time=o.pay_time,
+                created_at=o.created_at,
+                items=[
+                    OrderItemOut(
+                        id=i.id,
+                        sku_id=i.sku_id,
+                        quantity=i.quantity,
+                        price=i.price,
+                        course_title=i.sku.course.title if i.sku and i.sku.course else None,
+                        sku_name=i.sku.sku_name if i.sku else None,
+                    )
+                    for i in o.items
+                ],
+            )
+            for o in orders
+        ],
+    )
+
+
+@router.post("/orders/{order_sn}/refund")
+async def admin_refund_order(
+    order_sn: str,
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> dict[str, str]:
+    """Admin refund: restore stock, cancel order, and remove course access."""
+    result = await db.execute(
+        select(Order)
+        .where(Order.order_sn == order_sn)
+        .with_for_update()
+        .options(selectinload(Order.items))
+    )
+    order = result.scalar_one_or_none()
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
+    if order.status not in {OrderStatus.paid, OrderStatus.learning}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已支付订单才能退款")
+
+    # Restore SKU stock
+    sku_ids = [item.sku_id for item in order.items]
+    sku_result = await db.execute(select(CourseSKU).where(CourseSKU.id.in_(sku_ids)).with_for_update())
+    sku_map = {sku.id: sku for sku in sku_result.scalars().all()}
+    for item in order.items:
+        if item.sku_id in sku_map:
+            sku_map[item.sku_id].stock += item.quantity
+
+    # Remove course access (UserCourse)
+    from app.models import UserCourse
+    for item in order.items:
+        await db.execute(
+            delete(UserCourse).where(
+                UserCourse.user_id == order.user_id,
+                UserCourse.sku_id == item.sku_id,
+            )
+        )
+
+    order.status = OrderStatus.cancelled
+    await db.commit()
+    return {"status": "refunded", "order_sn": order_sn}

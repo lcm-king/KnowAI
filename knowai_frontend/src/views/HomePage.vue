@@ -47,10 +47,14 @@
               <div class="sc-price-row">
                 <span class="sc-price">¥{{ course.seckill_price || '9.90' }}</span>
                 <span class="sc-original">¥{{ originalPrice(course) }}</span>
-                <span class="sc-sold">已抢 85%</span>
+                <span class="sc-sold">{{ stockLabel(course) }}</span>
               </div>
               <div class="sc-progress">
-                <div class="sc-progress-bar" style="width:85%" />
+                <div class="sc-progress-bar" :style="{ width: stockPercent(course) }" />
+              </div>
+              <div class="sc-time-remaining" v-if="seckillRemaining(course)">
+                <span class="material-symbols-outlined" style="font-size:14px">schedule</span>
+                {{ seckillRemaining(course) }}
               </div>
               <RouterLink :to="`/courses/${course.id}`" class="sc-btn">
                 立即抢购
@@ -171,21 +175,17 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import HomeCarousel from '@/components/HomeCarousel.vue'
 import FavoriteButton from '@/components/FavoriteButton.vue'
-import { listCourses, type Course } from '@/api/courses'
+import { listCourses, listSeckillCourses, type Course } from '@/api/courses'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
 
 const courses = ref<Course[]>([])
 const totalCourses = ref(0)
+const seckillCourses = ref<Course[]>([])
 
 const featured = computed(() => courses.value[0] || null)
 const hotSliced = computed(() => courses.value.slice(1, 5))
-const seckillCourses = computed(() => courses.value.filter((c) => {
-  if (!c.seckill_price) return false
-  if (c.seckill_end_time && new Date(c.seckill_end_time).getTime() <= Date.now()) return false
-  return true
-}).slice(0, 4))
 
 const seckillEndTime = computed(() => {
   const endTimes = seckillCourses.value
@@ -220,8 +220,46 @@ function originalPrice(course: Course): string {
   return `¥${max}`
 }
 
+function minStock(course: Course): number {
+  const paid = (course.skus || []).filter((s) => Number(s.price) > 0)
+  if (!paid.length) return 999
+  return Math.min(...paid.map((s) => s.stock))
+}
+
+function stockLabel(course: Course): string {
+  const stock = minStock(course)
+  if (stock <= 10) return `仅剩 ${stock} 份`
+  if (stock <= 50) return '即将售罄'
+  if (stock <= 200) return '火热抢购中'
+  return '限时秒杀'
+}
+
+function stockPercent(course: Course): string {
+  const stock = minStock(course)
+  const pct = Math.min(95, Math.max(10, 100 - stock / 10))
+  return `${pct}%`
+}
+
+function seckillRemaining(course: Course): string {
+  if (!course.seckill_end_time) return ''
+  const diff = new Date(course.seckill_end_time).getTime() - Date.now()
+  if (diff <= 0) return ''
+  const h = Math.floor(diff / 3600000)
+  const m = Math.floor((diff % 3600000) / 60000)
+  const s = Math.floor((diff % 60000) / 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`
+  return `${pad(m)}:${pad(s)}`
+}
+
 const countdownStr = ref('')
 function updateCountdown() {
+  const now = Date.now()
+  // Real-time filter expired courses
+  seckillCourses.value = seckillCourses.value.filter((c) => {
+    if (!c.seckill_end_time) return true
+    return new Date(c.seckill_end_time).getTime() > now
+  })
   const target = seckillEndTime.value
   if (!target) {
     countdownStr.value = '00:00:00'
@@ -237,6 +275,21 @@ function updateCountdown() {
 }
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null
+let seckillRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+async function fetchSeckillCourses() {
+  try {
+    const now = Date.now()
+    const courses = await listSeckillCourses()
+    seckillCourses.value = courses.filter((c) => {
+      if (!c.seckill_price) return false
+      if (c.seckill_end_time && new Date(c.seckill_end_time).getTime() <= now) return false
+      return true
+    })
+  } catch {
+    // seckill display is optional
+  }
+}
 
 onMounted(async () => {
   try {
@@ -246,14 +299,21 @@ onMounted(async () => {
   } catch {
     courses.value = []
   }
+  await fetchSeckillCourses()
   updateCountdown()
   countdownTimer = setInterval(updateCountdown, 1000)
+  // Refresh seckill list every 15s to remove expired courses
+  seckillRefreshTimer = setInterval(fetchSeckillCourses, 15000)
 })
 
 onUnmounted(() => {
   if (countdownTimer) {
     clearInterval(countdownTimer)
     countdownTimer = null
+  }
+  if (seckillRefreshTimer) {
+    clearInterval(seckillRefreshTimer)
+    seckillRefreshTimer = null
   }
 })
 </script>
@@ -344,6 +404,7 @@ onUnmounted(() => {
 .sc-price { font-size: 22px; font-weight: 800; color: var(--danger); }
 .sc-original { font-size: 13px; color: var(--outline); text-decoration: line-through; }
 .sc-sold { margin-left: auto; font-size: 12px; color: var(--on-surface-variant); }
+.sc-time-remaining { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--danger); font-weight: 600; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
 .sc-progress { height: 5px; background: var(--surface-gray); border-radius: 3px; margin-bottom: 12px; overflow: hidden; }
 .sc-progress-bar {
   height: 100%;

@@ -45,14 +45,18 @@ async def create_order(
     db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
 ) -> OrderCreateResponse:
-    order = await order_crud.create_order(db, redis, current_user.id, order_in.sku_ids, order_in.address_id)
+    orders = await order_crud.create_orders(db, redis, current_user.id, order_in.sku_ids, order_in.address_id)
     for sku_id in order_in.sku_ids:
         await cart_crud.remove_cart_item(redis, current_user.id, sku_id)
+    order_sns = [o.order_sn for o in orders]
+    all_free = all(o.total_amount == 0 for o in orders)
+    total = sum(o.total_amount for o in orders)
     return OrderCreateResponse(
-        order_sn=order.order_sn,
-        total_amount=order.total_amount,
-        expire_time=order.expire_time,
-        direct_granted=order.total_amount == 0,
+        order_sn=order_sns[0],
+        order_sns=order_sns,
+        total_amount=total,
+        expire_time=orders[0].expire_time,
+        direct_granted=all_free,
     )
 
 

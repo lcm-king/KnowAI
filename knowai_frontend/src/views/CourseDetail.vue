@@ -203,7 +203,7 @@
       <aside class="purchase-side">
         <div class="purchase-card">
           <div class="pc-cover">
-            <video v-if="course.video_url" :src="course.video_url" controls class="pc-video" preload="metadata">
+            <video v-if="course.video_url && course.is_purchased" :src="course.video_url" controls class="pc-video" preload="metadata">
               您的浏览器不支持视频播放
             </video>
             <el-image v-else :src="course.cover || ''" fit="cover">
@@ -238,8 +238,11 @@
               <button v-if="course.seckill_activity_id && !seckillExpired" class="pc-btn pc-btn-seckill" :disabled="seckillPolling" @click="startSeckill">
                 <span class="material-symbols-outlined">bolt</span> 秒杀抢购
               </button>
-              <button class="pc-btn pc-btn-primary" @click="buyNow">立即购买</button>
-              <button class="pc-btn pc-btn-ghost" @click="addToCart">
+              <button class="pc-btn pc-btn-primary" @click="buyNow">
+                <span class="material-symbols-outlined">{{ selectedSkuPaid ? 'shopping_cart' : 'library_add' }}</span>
+                {{ selectedSkuPaid ? '立即购买' : '加入课程' }}
+              </button>
+              <button v-if="selectedSkuPaid" class="pc-btn pc-btn-ghost" @click="addToCart">
                 <span class="material-symbols-outlined">add_shopping_cart</span> 加入购物车
               </button>
             </template>
@@ -454,7 +457,7 @@ async function startSeckill() {
   }
   seckillPolling.value = true
   const startTime = Date.now()
-  const toast = ElMessage.info('正在排队...')
+  let toast = ElMessage.info('正在排队...')
   try {
     const queue = await submitSeckill(course.value.seckill_activity_id)
     let delay = 1000
@@ -481,7 +484,8 @@ async function startSeckill() {
         return
       }
       // Still queued — update message and increase delay
-      toast.content = `正在排队... ${elapsed}s`
+      toast.close()
+      toast = ElMessage.info(`正在排队... ${elapsed}s`)
       delay = Math.min(delay * 1.5, maxDelay)
     }
   } catch {

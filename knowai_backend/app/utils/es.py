@@ -7,10 +7,24 @@ from app.config import settings
 COURSES_INDEX = "courses"
 
 COURSES_INDEX_MAPPING: dict[str, Any] = {
+    "settings": {
+        "analysis": {
+            "analyzer": {
+                "smart_text": {
+                    "type": "standard",
+                }
+            }
+        }
+    },
     "mappings": {
         "properties": {
             "course_id": {"type": "integer"},
-            "title": {"type": "text", "analyzer": "standard", "search_analyzer": "standard"},
+            "title": {
+                "type": "text",
+                "analyzer": "standard",
+                "search_analyzer": "standard",
+                "fields": {"keyword": {"type": "keyword", "ignore_above": 256}},
+            },
             "description": {"type": "text", "analyzer": "standard"},
             "cover": {"type": "keyword"},
             "category": {"type": "keyword"},
@@ -21,7 +35,7 @@ COURSES_INDEX_MAPPING: dict[str, Any] = {
             "status": {"type": "keyword"},
             "created_at": {"type": "date"},
         }
-    }
+    },
 }
 
 

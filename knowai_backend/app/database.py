@@ -97,6 +97,47 @@ async def init_db() -> None:
             """)
         )
 
+        # Create course_questions table
+        await conn.execute(
+            text("""
+                CREATE TABLE IF NOT EXISTS course_questions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    course_id INT NOT NULL,
+                    lesson_id INT NULL,
+                    user_id INT NOT NULL,
+                    title VARCHAR(200) NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+                    FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE SET NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+        )
+
+        # Create course_answers table
+        await conn.execute(
+            text("""
+                CREATE TABLE IF NOT EXISTS course_answers (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    question_id INT NOT NULL,
+                    user_id INT NOT NULL,
+                    content TEXT NOT NULL,
+                    is_teacher_answer BOOLEAN DEFAULT FALSE,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (question_id) REFERENCES course_questions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+        )
+
+        # Migration: add avatar column to users
+        result = await conn.execute(text("SHOW COLUMNS FROM users LIKE 'avatar'"))
+        if not result.fetchone():
+            await conn.execute(text("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) NULL AFTER password_hash"))
+
 
 async def init_mongo() -> None:
     global mongo_client
@@ -106,6 +147,22 @@ async def init_mongo() -> None:
     await db.users.create_index("phone", unique=True)
     await db.users.create_index("email", unique=True)
     await db.chat_messages.create_index([("user_id", 1), ("session_id", 1), ("created_at", 1)])
+    # 学习进度:课时维度
+    await db.lesson_progress.create_index(
+        [("user_id", 1), ("lesson_id", 1)], unique=True
+    )
+    await db.lesson_progress.create_index([("user_id", 1), ("course_id", 1)])
+    # 学习进度:课程维度(继续学习)
+    await db.course_progress.create_index(
+        [("user_id", 1), ("course_id", 1)], unique=True
+    )
+    # 学习笔记
+    await db.lesson_notes.create_index(
+        [("user_id", 1), ("lesson_id", 1)]
+    )
+    await db.lesson_notes.create_index(
+        [("user_id", 1), ("course_id", 1)]
+    )
 
 
 async def init_redis() -> None:

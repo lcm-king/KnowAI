@@ -67,6 +67,9 @@ async function checkout() {
     if (order.direct_granted) {
       ElMessage.success('免费课程已加入我的学习')
       router.push('/my-courses')
+    } else if (order.order_sns && order.order_sns.length > 1) {
+      ElMessage.success(`已创建 ${order.order_sns.length} 笔订单，请逐笔支付`)
+      router.push(`/pay/${order.order_sn}?sns=${order.order_sns.join(',')}`)
     } else {
       router.push(`/pay/${order.order_sn}`)
     }

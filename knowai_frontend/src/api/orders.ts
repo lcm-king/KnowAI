@@ -22,7 +22,7 @@ export interface Order {
 }
 
 export function createOrder(sku_ids: number[]) {
-  return request.post<unknown, { order_sn: string; total_amount: string; expire_time: string; direct_granted?: boolean }>('/orders/create', { sku_ids })
+  return request.post<unknown, { order_sn: string; order_sns: string[]; total_amount: string; expire_time: string; direct_granted?: boolean }>('/orders/create', { sku_ids })
 }
 
 export function listOrders(params: Record<string, unknown>) {

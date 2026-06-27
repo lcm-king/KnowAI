@@ -70,7 +70,8 @@ async def preheat_seckill_stock(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="秒杀活动不存在")
 
     await redis.set(STOCK_KEY.format(activity_id=activity.id), activity.stock)
-    activity.status = SeckillStatus.active
+    # 预热只加载 Redis 库存,不改变活动状态。
+    # 状态在活动开始时间到达后由抢购请求惰性激活,避免"预热即 active"导致活动提前可见/可抢。
     await db.commit()
     return SeckillPreheatResponse(activity_id=activity.id, stock=activity.stock, message="预热成功")
 
@@ -96,10 +97,16 @@ async def submit_seckill(
     now = datetime.now()
     if activity is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="秒杀活动不存在")
-    if activity.status != SeckillStatus.active or activity.start_time > now or activity.end_time <= now:
+    if activity.status == SeckillStatus.finished or activity.start_time > now or activity.end_time <= now:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="秒杀活动未开始或已结束")
     if activity.sku.status != SKUStatus.on:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKU 不可用")
+
+    # 惰性激活:活动时间已到但状态仍为 pending 时,转为 active
+    if activity.status == SeckillStatus.pending:
+        activity.status = SeckillStatus.active
+        await db.commit()
+        await db.refresh(activity)
 
     purchased_key = PURCHASED_KEY.format(activity_id=activity_id)
     if await redis.sismember(purchased_key, current_user.id):

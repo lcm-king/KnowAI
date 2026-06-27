@@ -11,17 +11,44 @@ from app.config import settings
 from app.crud import user_crud
 from app.database import get_db, get_redis
 from app.models import Teacher, TeacherStatus, User, UserRole
-from app.schemas import ApplyTeacherRequest, PhoneCodeLogin, RegisterResponse, SendCodeRequest, Token, UserCreate, UserLogin, UserRead
+from app.schemas import ApplyTeacherRequest, AvatarUpdateRequest, PasswordChangeRequest, PhoneCodeLogin, RegisterResponse, SendCodeRequest, Token, UserCreate, UserLogin, UserRead
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_prefix}/auth/login")
 CODE_TTL = 300  # 5 minutes
 CODE_PREFIX = "verify:code:"
+COOLDOWN_PREFIX = "verify:cooldown:"
+COOLDOWN_SECONDS = 60  # 同一目标 60s 内只能请求一次验证码
 
 
 import random
 
 from app.services.cloopen_sms import get_sms_client
+
+
+async def _check_and_set_cooldown(redis: Redis, target: str) -> None:
+    cooldown_key = f"{COOLDOWN_PREFIX}{target}"
+    if await redis.exists(cooldown_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="请求过于频繁，请稍后再试",
+        )
+    await redis.setex(cooldown_key, COOLDOWN_SECONDS, "1")
+
+
+async def _send_code(redis: Redis, target: str) -> str:
+    code = str(random.randint(1000, 9999))
+    await redis.setex(f"{CODE_PREFIX}{target}", CODE_TTL, code)
+    sms = get_sms_client()
+    if sms and sms.enabled and settings.sms_mock is False:
+        try:
+            await sms.send(target, (code, "5"))
+            return code
+        except Exception as e:
+            print(f"SMS send failed: {e}")
+    # mock 模式:仅打印到服务端控制台,不回传给客户端
+    print(f"[DEV] 验证码 {target}: {code}")
+    return code
 
 
 @router.post("/send-code")
@@ -42,21 +69,9 @@ async def send_code(
             detail="该手机号或邮箱已被注册",
         )
 
-    code = str(random.randint(1000, 9999))
-    key = f"{CODE_PREFIX}{request.target}"
-    await redis.setex(key, CODE_TTL, code)
-
-    # Try real SMS first
-    sms = get_sms_client()
-    if sms and sms.enabled and settings.sms_mock is False:
-        try:
-            await sms.send(request.target, (code, "5"))
-            return {"message": "验证码已发送"}
-        except Exception as e:
-            print(f"SMS send failed: {e}")
-
-    # Fallback: return code in response (dev/mock mode)
-    return {"message": "验证码已发送", "code": code}
+    await _check_and_set_cooldown(redis, request.target)
+    await _send_code(redis, request.target)
+    return {"message": "验证码已发送"}
 
 
 @router.post("/send-login-code")
@@ -75,19 +90,9 @@ async def send_login_code(
             detail="该手机号未注册",
         )
 
-    code = str(random.randint(1000, 9999))
-    key = f"{CODE_PREFIX}{request.target}"
-    await redis.setex(key, CODE_TTL, code)
-
-    sms = get_sms_client()
-    if sms and sms.enabled and settings.sms_mock is False:
-        try:
-            await sms.send(request.target, (code, "5"))
-            return {"message": "验证码已发送"}
-        except Exception as e:
-            print(f"SMS send failed: {e}")
-
-    return {"message": "验证码已发送", "code": code}
+    await _check_and_set_cooldown(redis, request.target)
+    await _send_code(redis, request.target)
+    return {"message": "验证码已发送"}
 
 
 @router.post("/login/phone", response_model=Token)
@@ -128,8 +133,18 @@ async def apply_teacher(
     existing = await db.execute(
         select(Teacher).where(Teacher.user_id == current_user.id)
     )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="已提交过讲师申请，请等待审核")
+    existing_teacher = existing.scalar_one_or_none()
+    if existing_teacher is not None:
+        if existing_teacher.status == TeacherStatus.pending:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="已提交过讲师申请，请等待审核")
+        if existing_teacher.status == TeacherStatus.approved:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="您已是讲师，无需重复申请")
+        # Rejected: allow re-apply
+        existing_teacher.name = payload.name
+        existing_teacher.bio = payload.bio
+        existing_teacher.status = TeacherStatus.pending
+        await db.commit()
+        return {"message": "讲师申请已重新提交，等待管理员审核"}
 
     teacher = Teacher(
         user_id=current_user.id,
@@ -238,3 +253,30 @@ async def delete_account(
     # 撤销当前 token
     await revoke_access_token(token, redis)
     return {"message": "账号已注销"}
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: PasswordChangeRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    if not verify_password(payload.old_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="原密码错误")
+    if payload.old_password == payload.new_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能与原密码相同")
+    current_user.password_hash = get_password_hash(payload.new_password)
+    await db.commit()
+    return {"message": "密码修改成功"}
+
+
+@router.put("/avatar", response_model=UserRead)
+async def update_avatar(
+    payload: AvatarUpdateRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserRead:
+    current_user.avatar = payload.avatar
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user

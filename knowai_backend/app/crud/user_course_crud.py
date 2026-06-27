@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta
+from decimal import Decimal
 
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -7,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.models import Course, CourseSKU, Order, OrderItem, SKUStatus, UserCourse
 
 
-async def grant_courses_for_order(db: AsyncSession, order: Order) -> None:
+async def grant_courses_for_order(db: AsyncSession, order: Order, redis: Redis | None = None) -> None:
     result = await db.execute(
         select(OrderItem)
         .where(OrderItem.order_id == order.id)
@@ -47,3 +48,7 @@ async def grant_courses_for_order(db: AsyncSession, order: Order) -> None:
         elif existing.expire_date < expire_date:
             existing.expire_date = expire_date
         item.sku.course.learn_count += item.quantity
+
+        # Track in Redis hot ZSet
+        if redis is not None:
+            await redis.zincrby("top:courses", 10, str(item.sku.course_id))
