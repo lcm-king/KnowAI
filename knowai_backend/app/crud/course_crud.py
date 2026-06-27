@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Course, CourseReview, CourseSKU, CourseStatus, SeckillActivity, SeckillStatus, SKUStatus, Teacher
+from app.models import Course, CourseReview, CourseSKU, CourseStatus, Favorite, SeckillActivity, SeckillStatus, SKUStatus, Teacher, UserCourse
 from app.schemas import CourseCreate, CourseSKUCreate, CourseSKUUpdate, CourseUpdate
 
 
@@ -43,6 +43,10 @@ async def submit_course(db: AsyncSession, course: Course) -> Course:
 
 async def close_course(db: AsyncSession, course: Course) -> Course:
     course.status = CourseStatus.closed
+    # 下架与删除同效:清除购买记录、收藏、评价
+    await db.execute(delete(UserCourse).where(UserCourse.course_id == course.id))
+    await db.execute(delete(Favorite).where(Favorite.course_id == course.id))
+    await db.execute(delete(CourseReview).where(CourseReview.course_id == course.id))
     await db.commit()
     await db.refresh(course)
     return course
@@ -177,8 +181,12 @@ async def list_all_courses(
 
 
 async def delete_course_soft(db: AsyncSession, course: Course) -> Course:
-    """Soft-delete a course by setting status to closed."""
+    """Soft-delete a course by setting status to closed, and clear purchase records."""
     course.status = CourseStatus.closed
+    # 同步清除购买记录、收藏、评价,避免购买者仍看到已下架课程
+    await db.execute(delete(UserCourse).where(UserCourse.course_id == course.id))
+    await db.execute(delete(Favorite).where(Favorite.course_id == course.id))
+    await db.execute(delete(CourseReview).where(CourseReview.course_id == course.id))
     await db.commit()
     await db.refresh(course)
     return course

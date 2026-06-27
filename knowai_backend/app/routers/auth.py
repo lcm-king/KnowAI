@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import authenticate_user, create_user_access_token, get_current_user, get_password_hash, revoke_access_token, verify_password
 from app.config import settings
+from app.crud import user_crud
 from app.database import get_db, get_redis
 from app.models import Teacher, TeacherStatus, User, UserRole
 from app.schemas import ApplyTeacherRequest, PhoneCodeLogin, RegisterResponse, SendCodeRequest, Token, UserCreate, UserLogin, UserRead
@@ -229,13 +230,10 @@ async def delete_account(
     if not verify_password(password, current_user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="密码错误，无法注销")
 
-    # 软删除：禁用账号、清除敏感信息、保留订单数据
-    current_user.is_active = False
-    current_user.username = f"deleted_{current_user.id}"
-    current_user.phone = f"deleted_{current_user.id}"
-    current_user.email = f"deleted_{current_user.id}@knowai.local"
-    current_user.password_hash = "DISABLED"
-    await db.commit()
+    try:
+        await user_crud.hard_delete_user(db, current_user)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     # 撤销当前 token
     await revoke_access_token(token, redis)

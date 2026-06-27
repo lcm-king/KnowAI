@@ -1,1 +1,0 @@
-import{I as e}from"./index-BCqAWjiG.js";function o(t){return e.post(`/favorites/${t}`)}function i(t){return e.get(`/favorites/check/${t}`)}function s(t){return e.get("/favorites",{params:t})}export{i as c,s as l,o as t};

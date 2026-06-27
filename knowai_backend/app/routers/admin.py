@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_admin
-from app.crud import course_crud
+from app.crud import course_crud, user_crud
 from app.database import get_db, get_redis
 from app.models import (
     Chapter,
@@ -598,10 +598,7 @@ async def admin_delete_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if user.id == current_admin.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能删除自己")
-    # Soft delete: disable account and clear personal info
-    user.is_active = False
-    user.username = f"deleted_{user.id}"
-    user.phone = f"deleted_{user.id}"
-    user.email = f"deleted_{user.id}@knowai.local"
-    user.password_hash = "DISABLED"
-    await db.commit()
+    try:
+        await user_crud.hard_delete_user(db, user)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
