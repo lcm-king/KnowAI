@@ -70,8 +70,11 @@ async def send_code(
         )
 
     await _check_and_set_cooldown(redis, request.target)
-    await _send_code(redis, request.target)
-    return {"message": "验证码已发送"}
+    code = await _send_code(redis, request.target)
+    resp: dict[str, str] = {"message": "验证码已发送"}
+    if settings.sms_mock:
+        resp["mock_code"] = code
+    return resp
 
 
 @router.post("/send-login-code")
@@ -91,8 +94,11 @@ async def send_login_code(
         )
 
     await _check_and_set_cooldown(redis, request.target)
-    await _send_code(redis, request.target)
-    return {"message": "验证码已发送"}
+    code = await _send_code(redis, request.target)
+    resp: dict[str, str] = {"message": "验证码已发送"}
+    if settings.sms_mock:
+        resp["mock_code"] = code
+    return resp
 
 
 @router.post("/login/phone", response_model=Token)

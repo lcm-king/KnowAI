@@ -191,11 +191,75 @@ async def seed() -> None:
                 999,
                 "",
             ),
+            (
+                "深度学习与神经网络",
+                "从 CNN、RNN 到 Transformer，深入理解深度学习核心原理与实战。",
+                "AI",
+                48,
+                "299.00",
+                60,
+                "https://dummyimage.com/600x360/dc2626/ffffff&text=DL",
+            ),
+            (
+                "Go 语言后端开发",
+                "从基础语法到高并发编程，用 Go 构建高性能后端服务。",
+                "后端",
+                36,
+                "199.00",
+                75,
+                "https://dummyimage.com/600x360/0891b2/ffffff&text=Go",
+            ),
+            (
+                "Docker & Kubernetes 实战",
+                "容器化部署与编排，从开发到生产的完整 DevOps 实践。",
+                "运维",
+                30,
+                "229.00",
+                50,
+                "https://dummyimage.com/600x360/1d4ed8/ffffff&text=K8s",
+            ),
+            (
+                "数据库系统设计",
+                "覆盖 MySQL、PostgreSQL、MongoDB 和 Redis 的设计与优化。",
+                "后端",
+                28,
+                "179.00",
+                70,
+                "https://dummyimage.com/600x360/059669/ffffff&text=DB",
+            ),
+            (
+                "React 18 现代开发",
+                "函数组件、Hooks、状态管理与 Next.js 全栈开发实战。",
+                "前端",
+                32,
+                "169.00",
+                85,
+                "https://dummyimage.com/600x360/7c3aed/ffffff&text=React",
+            ),
+            (
+                "数据结构与算法",
+                "系统学习常见数据结构与经典算法，备战大厂面试。",
+                "编程",
+                40,
+                "199.00",
+                95,
+                "https://dummyimage.com/600x360/c026d3/ffffff&text=DSA",
+            ),
+            (
+                "Linux 系统管理",
+                "掌握 Linux 命令行、Shell 脚本与服务器运维核心技能。",
+                "运维",
+                24,
+                "139.00",
+                80,
+                "https://dummyimage.com/600x360/ea580c/ffffff&text=Linux",
+            ),
         ]
         seeded_courses = []
         for course in courses:
             seeded_courses.append(await create_course_if_missing(db, teacher.id, *course))
         await create_demo_seckill(db, seeded_courses[0])
+        await create_demo_seckill(db, seeded_courses[1])
         await db.commit()
 
         # ---------- 创建演示订单（让讲师看板有真实销量数据） ----------

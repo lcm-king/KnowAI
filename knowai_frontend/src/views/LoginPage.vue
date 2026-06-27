@@ -157,7 +157,11 @@ async function sendRegisterCode() {
   codeSending.value = true
   try {
     const result = await sendCode({ target })
-    ElMessage.success(`验证码已发送至 ${target}`)
+    if (result.mock_code) {
+      ElMessage.success(`验证码已发送至 ${target}（测试验证码：${result.mock_code}）`)
+    } else {
+      ElMessage.success(`验证码已发送至 ${target}`)
+    }
     startCodeCountdown(() => { codeSending.value = false })
   } catch {
     // interceptor already showed error

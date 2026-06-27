@@ -20,11 +20,11 @@ export interface RegisterPayload {
 }
 
 export function sendCode(data: { target: string }) {
-  return request.post<unknown, { message: string }>('/auth/send-code', data)
+  return request.post<unknown, { message: string; mock_code?: string }>('/auth/send-code', data)
 }
 
 export function sendLoginCode(data: { target: string }) {
-  return request.post<unknown, { message: string }>('/auth/send-login-code', data)
+  return request.post<unknown, { message: string; mock_code?: string }>('/auth/send-login-code', data)
 }
 
 export function register(data: RegisterPayload) {
