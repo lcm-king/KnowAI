@@ -75,11 +75,11 @@ async def create_orders(db: AsyncSession, redis: Redis, user_id: int, sku_ids: l
             sku = sku_map[sku_id]
             if sku.status != SKUStatus.on:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"SKU {sku_id} 不可用")
-            if sku.stock < 1:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"SKU {sku_id} 库存不足")
+            # stock == 0 means unlimited (普通课程无限购买); stock > 0 means limited (需扣减)
+            if sku.stock > 0:
+                sku.stock -= 1
             if sku.course is None or sku.course.status != CourseStatus.published:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="课程不存在或已下架")
-            sku.stock -= 1
 
         # Group SKUs by teacher
         teacher_groups: dict[int, list[int]] = {}
@@ -185,7 +185,9 @@ async def cancel_order_by_sn(db: AsyncSession, user_id: int | None, order_sn: st
         sku_map = {sku.id: sku for sku in sku_result.scalars().all()}
         for item in order.items:
             if item.sku_id in sku_map:
-                sku_map[item.sku_id].stock += item.quantity
+                # Only restore if stock is limited (stock > 0 means limited; 0 means unlimited)
+                if sku_map[item.sku_id].stock > 0:
+                    sku_map[item.sku_id].stock += item.quantity
         order.status = OrderStatus.cancelled
 
         # Restore seckill stock (DB activity.stock + Redis remaining + purchased set)
