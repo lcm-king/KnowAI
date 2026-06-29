@@ -259,14 +259,6 @@ def retrieve_content_node(state: QuizState) -> dict[str, Any]:
         if d.page_content.strip():
             contents.append(d.page_content)
 
-    if not contents:
-        kps_str = "、".join(state["knowledge_points"])
-        contents = [
-            f"课程名称：{state['chapter_title']}\n"
-            f"相关信息：{kps_str}\n"
-            f"请基于以上信息出题，不要编造与课程无关的内容。"
-        ]
-
     return {
         "retrieved_content": contents,
         "messages": [HumanMessage(content=f"[内容检索] 检索到 {len(contents)} 个片段")],
@@ -280,12 +272,19 @@ async def generate_questions_node(state: QuizState) -> dict[str, Any]:
     chapter = state["chapter_title"]
     kps = ", ".join(state["knowledge_points"])
 
+    if not context.strip():
+        return {"questions": []}
+
     system_prompt = SystemMessage(
         content=(
-            f"你是一个教育出题助手。请根据课程内容生成 {state['count']} 道{types_str}（难度：{state.get('difficulty', '中等')}）。\n"
+            f"你是一个教育出题助手。请根据下方参考内容生成 {state['count']} 道{types_str}（难度：{state.get('difficulty', '中等')}）。\n"
             "选择题必须包含4个选项和正确答案（A/B/C/D）。问答题需包含参考答案。\n"
-            "如果参考资料内容有限，可以利用你自己的知识，围绕章节主题和知识点出题。\n"
-            "确保题目与课程内容高度相关，不重复。\n\n"
+            "重要规则：\n"
+            "1. 题目必须严格基于参考内容，禁止编造参考内容中没有的信息。\n"
+            "2. 禁止出关于章节名称、编号、标题本身这类废话题。\n"
+            "3. 题目应考察对参考内容中具体知识点的理解，而不是元信息。\n"
+            "4. 如果参考内容不足以生成题目，返回空列表：{\"questions\": []}\n"
+            "5. 题目之间不重复。\n\n"
             "必须输出严格的JSON格式（不要markdown，不要```，不要额外说明）：\n"
             '{"questions": [{"question": "...", "options": ["A. ...", "B. ...", "C. ...", "D. ..."], "answer": "A"}, ...]}'
         )
@@ -342,39 +341,8 @@ async def generate_questions_node(state: QuizState) -> dict[str, Any]:
         else:
             raise ValueError(f"unexpected shape: {type(parsed)}")
     except Exception as exc:
-        logger.warning("Quiz generation failed, using fallback: %s", exc)
-        # Generate reasonable fallback questions even without API
-        fallback_questions = []
-        question_templates = [
-            {
-                "question": f"关于「{chapter}」的核心概念，以下哪个描述最准确？",
-                "options": [
-                    f"{kps.split('、')[0] if '、' in kps else kps.split(',')[0] if ',' in kps else '概念'}的定义和应用",
-                    "与课程无关的描述",
-                    "完全错误的说法",
-                    "似是而非的干扰项",
-                ],
-                "answer": "A",
-            },
-            {
-                "question": f"在「{chapter}」中，以下哪个知识点最重要？",
-                "options": [
-                    f"{kps.split('、')[0] if '、' in kps else kps.split(',')[0] if ',' in kps else '核心知识点'}",
-                    "边缘知识点",
-                    "不相关内容",
-                    "拓展内容",
-                ],
-                "answer": "A",
-            },
-            {
-                "question": f"简述「{chapter}」的主要学习目标和应用场景。",
-                "options": [],
-                "answer": f"主要学习{kps}的基本概念、原理和应用方法。通过学习，学生能够理解并运用相关知识解决实际问题。",
-            },
-        ]
-        for i in range(min(state["count"], len(question_templates))):
-            fallback_questions.append(question_templates[i])
-        questions = fallback_questions
+        logger.warning("Quiz generation failed: %s", exc)
+        questions = []
 
     return {"questions": questions}
 

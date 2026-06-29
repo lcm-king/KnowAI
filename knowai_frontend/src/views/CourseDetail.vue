@@ -519,6 +519,9 @@ async function loadQuiz() {
     })
     questions.value = result.questions
     showAnswers.value = {}
+    if (!result.questions.length) {
+      ElMessage.warning('该章节知识库内容不足，无法生成题目，请先上传知识库文档')
+    }
   } catch {
     ElMessage.error('生成题目失败，请稍后再试')
   } finally {
