@@ -69,6 +69,23 @@ async def create_course(
             validity_days=365,
         )
         await course_crud.create_course_sku(db, course.id, sku_in)
+    # Auto-create first chapter and lesson if video_url is provided
+    if course.video_url:
+        max_order = await db.scalar(
+            select(func.coalesce(func.max(Chapter.sort_order), -1)).where(Chapter.course_id == course.id)
+        )
+        chapter = Chapter(course_id=course.id, title="第一章", sort_order=int(max_order or 0) + 1)
+        db.add(chapter)
+        await db.flush()
+        lesson = Lesson(
+            chapter_id=chapter.id,
+            title="第一节",
+            video_url=course.video_url,
+            duration=course.total_hours * 3600 if course.total_hours else 0,
+            sort_order=0,
+        )
+        db.add(lesson)
+    await db.commit()
     background_tasks.add_task(sync_course_to_es, course.id)
     return course
 
