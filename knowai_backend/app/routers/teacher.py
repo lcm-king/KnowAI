@@ -65,7 +65,7 @@ async def create_course(
     if price is not None and price >= 0:
         sku_in = CourseSKUCreate(
             price=price,
-            stock=stock or 0,
+            stock=stock if stock and stock > 0 else 9999,
             validity_days=365,
         )
         await course_crud.create_course_sku(db, course.id, sku_in)

@@ -208,6 +208,9 @@
         <el-form-item label="价格（元）">
           <el-input-number v-model="form.price" :min="0" :precision="2" style="width:100%" placeholder="设为 0 即为免费课程" />
         </el-form-item>
+        <el-form-item label="库存">
+          <el-input-number v-model="form.stock" :min="0" :max="99999" style="width:100%" placeholder="可购买数量，0 表示无库存" />
+        </el-form-item>
         <el-divider />
         <p style="margin:0 0 8px;font-size:13px;color:var(--on-surface-variant)">知识库文档</p>
         <el-form-item label="课程知识库">
@@ -355,7 +358,7 @@ const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const chartRef = ref<HTMLDivElement>()
 let chartInstance: echarts.ECharts | null = null
-const form = ref({ title: '', category: '', description: '', cover: '', video_url: '', total_hours: 0, price: null as number | null, stock: 0 })
+const form = ref({ title: '', category: '', description: '', cover: '', video_url: '', total_hours: 0, price: null as number | null, stock: 100 })
 
 const courses = ref<TeacherCourse[]>([])
 const loadingCourses = ref(true)
@@ -863,6 +866,22 @@ async function handleSave() {
     } else {
       const course = await createCourse(form.value)
       const courseId = course.id
+
+      // Auto-create first chapter+lesson if video was uploaded
+      if (form.value.video_url) {
+        try {
+          const chapter = await createChapter(courseId, { title: '第一章' })
+          await createLesson(chapter.id, {
+            title: '第一节',
+            video_url: form.value.video_url,
+            duration: form.value.total_hours * 3600,
+            sort_order: 0,
+          })
+        } catch {
+          // If auto-create fails, ignore and continue
+        }
+      }
+
       // Upload pending knowledge files
       for (const pf of pendingKnowledgeFiles.value) {
         try {
@@ -884,7 +903,7 @@ async function handleSave() {
 
 function openCreate() {
   editingId.value = null
-  form.value = { title: '', category: '', description: '', cover: '', video_url: '', total_hours: 0, price: null, stock: 0 }
+  form.value = { title: '', category: '', description: '', cover: '', video_url: '', total_hours: 0, price: null, stock: 100 }
   courseKnowledgeFiles.value = []
   pendingKnowledgeFiles.value = []
   dialogVisible.value = true
