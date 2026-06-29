@@ -107,7 +107,7 @@ class CourseCreate(BaseModel):
     cover: str | None = None
     video_url: str | None = None
     category: str | None = Field(default=None, max_length=50)
-    total_hours: int | None = Field(default=None, ge=0)
+    total_hours: float | None = Field(default=None, ge=0)
     price: Decimal | None = Field(default=None, ge=0)
     stock: int | None = Field(default=None, ge=0)
 
@@ -118,7 +118,7 @@ class CourseUpdate(BaseModel):
     cover: str | None = None
     video_url: str | None = None
     category: str | None = Field(default=None, max_length=50)
-    total_hours: int | None = Field(default=None, ge=0)
+    total_hours: float | None = Field(default=None, ge=0)
     price: Decimal | None = Field(default=None, ge=0)
     stock: int | None = Field(default=None, ge=0)
 
@@ -704,7 +704,7 @@ class AdminCourseCreate(BaseModel):
     description: str | None = None
     cover: str | None = None
     category: str | None = Field(default=None, max_length=50)
-    total_hours: int = Field(default=0, ge=0)
+    total_hours: float = Field(default=0, ge=0)
 
 
 class AdminCourseListResponse(BaseModel):

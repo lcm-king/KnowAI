@@ -823,7 +823,7 @@ async function handleCourseVideoUpload(file: File) {
     video.preload = 'metadata'
     video.onloadedmetadata = () => {
       const durationSec = video.duration || 0
-      form.value.total_hours = Math.round((durationSec / 3600) * 10) / 10 || 0
+      form.value.total_hours = Math.round(durationSec / 3600) || 0
     }
     video.src = result.url
     ElMessage.success('视频上传成功')

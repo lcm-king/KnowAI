@@ -100,7 +100,7 @@ class Course(Base):
     cover: Mapped[str | None] = mapped_column(String(500), nullable=True)
     video_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     category: Mapped[str | None] = mapped_column(String(50), index=True)
-    total_hours: Mapped[int] = mapped_column(Integer, default=0)
+    total_hours: Mapped[float] = mapped_column(Float, default=0)
     learn_count: Mapped[int] = mapped_column(Integer, default=0)
     rating: Mapped[float] = mapped_column(Float, default=0.0)
     status: Mapped[CourseStatus] = mapped_column(Enum(CourseStatus), default=CourseStatus.draft, nullable=False)
