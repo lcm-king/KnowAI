@@ -182,7 +182,10 @@ async def approve_course(
     course.status = CourseStatus.published
     await db.commit()
     await redis.delete("homepage:courses", f"course:detail:{course_id}")
-    await sync_course_to_es(course_id, db)
+    try:
+        await sync_course_to_es(course_id, db)
+    except Exception:
+        pass
     return {"status": "ok", "course_id": str(course_id), "new_status": CourseStatus.published.value}
 
 
@@ -201,7 +204,10 @@ async def reject_course(
     course.status = CourseStatus.draft
     await db.commit()
     await redis.delete("homepage:courses", f"course:detail:{course_id}")
-    await delete_course_from_es(course_id)
+    try:
+        await delete_course_from_es(course_id)
+    except Exception:
+        pass
     return {"status": "ok", "course_id": str(course_id), "new_status": CourseStatus.draft.value}
 
 
