@@ -1,0 +1,59 @@
+@startuml
+start
+:用户进入课程列表页;
+:加载查询参数;
+fork
+  :分类筛选;
+fork again
+  :关键词搜索;
+fork again
+  :排序(热度/价格/评分);
+fork again
+  :分页加载;
+end fork
+if (ES 是否启用?) then (是)
+  :调用 ES 搜索 API;
+  :多字段匹配(标题^3, 描述^2, 分类);
+  :IK 中文分词;
+  :高亮匹配片段;
+  :返回排序结果;
+else (否)
+  :传统 MySQL 查询;
+  :模糊匹配 + 分页;
+  :返回课程列表;
+endif
+
+:用户点击课程;
+:加载课程详情页;
+fork
+  :课程基本信息;
+fork again
+  :SKU/价格;
+fork again
+  :课程章节大纲;
+fork again
+  :教师信息;
+fork again
+  :课程评价;
+fork again
+  :秒杀活动信息;
+end fork
+
+if (用户已登录?) then (是)
+  :查询是否已购买;
+  if (已购买?) then (是)
+    :显示"开始学习";
+  else (否)
+    :显示"立即购买";
+  endif
+else (否)
+  :显示"立即购买";
+endif
+
+:秒杀专区;
+:加载全部秒杀课程;
+:过滤已过期活动;
+:倒计时展示;
+:动态更新库存/进度条;
+stop
+@enduml

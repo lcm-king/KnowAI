@@ -1,0 +1,48 @@
+@startuml
+start
+:进入"我的课程";
+:选择课程;
+:加载课程大纲 + 章节列表;
+:选择章节/课时;
+
+if (有观看权限?) then (否)
+  if (免费试看?) then (是)
+    :播放视频并显示"试看"标记;
+    note right
+      仅限免费试看章节
+    end note
+  else (否)
+    :提示"请购买课程";
+    stop
+  endif
+endif
+
+:播放完整视频;
+
+partition "视频播放同步操作" {
+  fork
+    :记录学习进度到 MongoDB;
+    :每 30s 更新 watched_seconds;
+    :更新课程最后学习时间;
+  fork again
+    :做笔记;
+    :保存到 MongoDB(lesson_notes);
+  fork again
+    :AI 提问;
+    :调用 /ai/knowledge/chat;
+    :结合知识库回答;
+  fork again
+    :课程问答;
+    :查看已有回答;
+    :提交新问题;
+  end fork
+}
+
+:课程进度汇总;
+:MongoDB course_progress;
+:计算总进度百分比;
+if (进度 100%?) then (是)
+  :标记课程完成;
+endif
+stop
+@enduml

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { useFavoritesStore } from '@/stores/favorites'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', component: () => import('@/layouts/MainLayout.vue'), children: [
@@ -32,16 +33,10 @@ router.beforeEach(async (to) => {
   const userStore = useUserStore()
 
   // Try to restore session if token exists but user data not loaded yet
+  // Single attempt with the request timeout handled by axios. No retry loop:
+  // a dead backend shouldn't freeze navigation - user can still see public pages.
   if (userStore.token && !userStore.user) {
     await userStore.fetchMe()
-    // If fetchMe still couldn't get user data, try again once (transient error)
-    if (userStore.token && !userStore.user) {
-      await userStore.fetchMe()
-    }
-    // If still no user after retry, clear stale session
-    if (userStore.token && !userStore.user) {
-      await userStore.logout()
-    }
   }
 
   if (to.meta.requiresAuth && !userStore.isLoggedIn) {
@@ -53,6 +48,16 @@ router.beforeEach(async (to) => {
   if (roles?.length && (!userStore.role || !roles.includes(userStore.role))) {
     ElMessage.error('无权访问该页面')
     return { name: 'home' }
+  }
+
+  // Lazy-load the user's favorite course IDs once per session. Cards on the
+  // list/home/detail pages read from this cache instead of each firing their
+  // own /favorites/check/{id} request.
+  if (userStore.isLoggedIn) {
+    const favoritesStore = useFavoritesStore()
+    if (!favoritesStore.loaded && !favoritesStore.loading) {
+      favoritesStore.load()
+    }
   }
 
   return true

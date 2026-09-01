@@ -54,3 +54,12 @@ async def is_favorited(db: AsyncSession, user: User, course_id: int) -> bool:
         select(Favorite).where(Favorite.user_id == user.id, Favorite.course_id == course_id)
     )
     return result.scalar_one_or_none() is not None
+
+
+async def list_favorite_course_ids(db: AsyncSession, user: User) -> list[int]:
+    """Return all favorited course IDs for the user. Used for batch check on the
+    list page to avoid N+1 /favorites/check/{id} requests."""
+    result = await db.execute(
+        select(Favorite.course_id).where(Favorite.user_id == user.id)
+    )
+    return [row[0] for row in result.all()]

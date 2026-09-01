@@ -29,8 +29,17 @@ export const useUserStore = defineStore('user', () => {
   async function fetchMe() {
     if (!token.value) return
     try {
+      // Short timeout so a dead backend doesn't freeze route navigation
       user.value = await getMe()
-    } catch {
+    } catch (err: unknown) {
+      // 401 → token invalid/expired, clear it so user re-logs in
+      // Other errors (network/5xx) → keep token, just leave user=null; the next
+      // successful fetchMe will populate it. This avoids logging users out on transient blips.
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 401) {
+        token.value = ''
+        localStorage.removeItem('knowai_token')
+      }
       user.value = null
     }
   }
@@ -45,6 +54,9 @@ export const useUserStore = defineStore('user', () => {
     token.value = ''
     user.value = null
     localStorage.removeItem('knowai_token')
+    // Clear favorites cache so a different account logging in next doesn't see stale state.
+    const { useFavoritesStore } = await import('@/stores/favorites')
+    useFavoritesStore().clear()
   }
 
   return { token, user, isLoggedIn, role, loginByPassword, loginByPhoneCode, registerAccount, fetchMe, logout }

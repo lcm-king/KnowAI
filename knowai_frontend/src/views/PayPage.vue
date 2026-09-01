@@ -43,7 +43,9 @@ const payInfo = ref<Awaited<ReturnType<typeof createPay>>>()
 const loading = ref(false)
 const paid = ref(false)
 const orderAmount = ref<string>('')
-let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+let redirectTimer: ReturnType<typeof setTimeout> | null = null
+let isActive = true  // guard against post-unmount side effects
 
 const allOrderSns = computed(() => {
   const sns = route.query.sns as string | undefined
@@ -55,6 +57,7 @@ const allPaid = ref(false)
 onMounted(async () => {
   try {
     const order = await getOrder(String(route.params.orderSn))
+    if (!isActive) return
     orderAmount.value = order.pay_amount
   } catch {
     // ignore
@@ -71,33 +74,43 @@ async function pay() {
   }
 }
 
+// Recursive setTimeout instead of setInterval: the next tick only schedules after
+// the previous request resolves, so slow networks can't stack overlapping requests.
 async function startPoll() {
   if (pollTimer) return
-  pollTimer = setInterval(async () => {
+  const tick = async () => {
+    if (!isActive) return
     try {
-      const res = await request.get<unknown, { paid: boolean }>(`/pay/status/${route.params.orderSn}`)
+      const res = await request.get<unknown, { paid: boolean }>(`/pay/status/${route.params.orderSn}`, { silent: true })
+      if (!isActive) return
       if (res.paid) {
         paid.value = true
-        if (pollTimer) clearInterval(pollTimer)
-        pollTimer = null
-        // Check if there are more orders to pay
         const sns = allOrderSns.value
         const idx = sns.indexOf(route.params.orderSn as string)
         if (idx >= 0 && idx < sns.length - 1) {
-          setTimeout(() => router.push(`/pay/${sns[idx + 1]}?sns=${sns.join(',')}`), 1000)
+          redirectTimer = setTimeout(() => {
+            if (isActive) router.push(`/pay/${sns[idx + 1]}?sns=${sns.join(',')}`)
+          }, 1000)
         } else {
           allPaid.value = true
-          setTimeout(() => router.push('/my-courses'), 1500)
+          redirectTimer = setTimeout(() => {
+            if (isActive) router.push('/my-courses')
+          }, 1500)
         }
+        return  // stop polling
       }
     } catch {
-      // ignore poll errors
+      // ignore poll errors, keep retrying
     }
-  }, 3000)
+    if (isActive) pollTimer = setTimeout(tick, 3000)
+  }
+  pollTimer = setTimeout(tick, 3000)
 }
 
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  isActive = false
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
+  if (redirectTimer) { clearTimeout(redirectTimer); redirectTimer = null }
 })
 </script>
 

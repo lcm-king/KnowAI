@@ -7,9 +7,9 @@
           <value>
             <TabSessionState>
               <option name="provider" value="claude" />
-              <option name="sessionId" value="a9acaea0-fb14-4036-b722-d17a1cfe2faf" />
+              <option name="sessionId" value="c7876d2c-46a9-4c6b-a57d-ca7bab596625" />
               <option name="cwd" value="$PROJECT_DIR$" />
-              <option name="model" value="deepseek-v4-flash[1m]" />
+              <option name="model" value="gpt-5.5[1m]" />
               <option name="permissionMode" value="bypassPermissions" />
               <option name="reasoningEffort" value="high" />
             </TabSessionState>

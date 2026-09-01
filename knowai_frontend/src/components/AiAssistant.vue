@@ -119,10 +119,23 @@ onMounted(() => {
   if (stored) {
     sessionId.value = stored
   } else {
-    sessionId.value = crypto.randomUUID()
+    sessionId.value = generateId()
     localStorage.setItem(SESSION_KEY, sessionId.value)
   }
 })
+
+// crypto.randomUUID requires a secure context (HTTPS or localhost).
+// Fall back to a non-crypto UUID-like id for HTTP deployments.
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID()
+    } catch {
+      // not in a secure context, fall through
+    }
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+}
 
 watch(visible, async (v) => {
   if (v) {

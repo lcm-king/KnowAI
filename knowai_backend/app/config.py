@@ -96,7 +96,19 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    # Fail fast in production if secret defaults are still in use
+    if s.app_env == "production":
+        weak_defaults = []
+        if s.jwt_secret_key in {"your-secret-key-change-this", "change-this-to-a-long-random-secret", ""}:
+            weak_defaults.append("JWT_SECRET_KEY")
+        if s.mysql_password in {"123456", "knowai_pass", ""}:
+            weak_defaults.append("MYSQL_PASSWORD")
+        if weak_defaults:
+            raise RuntimeError(
+                f"生产环境禁止使用默认密钥/密码，请在 .env.docker 中设置: {', '.join(weak_defaults)}"
+            )
+    return s
 
 
 settings = get_settings()

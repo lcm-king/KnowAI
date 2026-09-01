@@ -10,10 +10,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { checkFavorite, toggleFavorite } from '@/api/favorites'
 import { useUserStore } from '@/stores/user'
+import { useFavoritesStore } from '@/stores/favorites'
 
 const props = withDefaults(defineProps<{
   courseId: number
@@ -23,16 +23,22 @@ const props = withDefaults(defineProps<{
 })
 
 const userStore = useUserStore()
-const isFavorited = ref(false)
+const favoritesStore = useFavoritesStore()
+
+const isFavorited = computed(() => favoritesStore.has(props.courseId))
 
 async function handleToggle() {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录后再收藏')
     return
   }
+  // Lazy-load the favorite ID set on first interaction so anonymous users
+  // never trigger the /favorites/ids request.
+  if (!favoritesStore.loaded) {
+    await favoritesStore.load()
+  }
   try {
-    const res = await toggleFavorite(props.courseId)
-    isFavorited.value = res.favorited
+    const res = await favoritesStore.toggle(props.courseId)
     ElMessage.success(res.message)
   } catch (err: unknown) {
     const axiosErr = err as { response?: { data?: { detail?: string }; status?: number }; message?: string }
@@ -41,16 +47,6 @@ async function handleToggle() {
     }
   }
 }
-
-onMounted(async () => {
-  if (!userStore.isLoggedIn) return
-  try {
-    const res = await checkFavorite(props.courseId)
-    isFavorited.value = res.favorited
-  } catch {
-    // ignore
-  }
-})
 </script>
 
 <style scoped>

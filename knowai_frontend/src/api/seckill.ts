@@ -18,5 +18,7 @@ export function submitSeckill(activityId: number) {
 }
 
 export function getSeckillResult(queueId: string) {
-  return request.get<unknown, SeckillResultResponse>(`/seckill/result/${queueId}`)
+  // Background poll - silent so it doesn't drive the global loading bar or
+  // pop error toasts on every retry while the user waits.
+  return request.get<unknown, SeckillResultResponse>(`/seckill/result/${queueId}`, { silent: true })
 }

@@ -1,0 +1,61 @@
+@startuml
+
+rectangle MySQL as mysql #87CEEB {
+  (users)
+  (courses)
+  (course_skus)
+  (orders)
+  (order_items)
+  (chapters)
+  (lessons)
+  (seckill_activities)
+  (user_courses)
+}
+
+rectangle Redis as redis #FFD700 {
+  (JWT Token)
+  (购物车)
+  (秒杀库存)
+  (验证码)
+  (用户限流)
+}
+
+rectangle MongoDB as mongo #90EE90 {
+  (学习进度)
+  (笔记)
+  (聊天历史)
+}
+
+rectangle Elasticsearch as es #FFB6C1 {
+  (课程索引)
+}
+
+rectangle ChromaDB as chroma #DDA0DD {
+  (知识库向量)
+}
+
+rectangle "文件存储" as file #F0E68C {
+  (视频文件)
+  (课程封面)
+  (知识库文档)
+}
+
+() "数据流向" as flow
+
+users -right-> "JWT Token" : 用户信息
+users -right-> "购物车" : 购物车数据
+users -right-> "用户限流" : 限流计数
+
+course_skus -right-> "秒杀库存" : 库存预热
+
+lessons -down-> "学习进度" : 学习记录
+users -down-> "聊天历史" : 对话记录
+
+courses -down-> "课程索引" : 课程数据
+
+chapters -down-> "知识库向量" : 文档向量
+
+lessons -down-> "视频文件" : 视频文件
+courses -down-> "课程封面" : 封面图片
+
+@enduml

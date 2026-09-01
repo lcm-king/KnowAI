@@ -16,6 +16,9 @@ export interface Course {
   seckill_activity_id?: number | null
   seckill_price?: string | null
   seckill_end_time?: string | null
+  /** Real-time remaining stock for the seckill activity. null/undefined when
+   * no active seckill. For seckill, 0 means sold out (NOT unlimited). */
+  seckill_stock?: number | null
   price?: string | null
   stock?: number | null
   validity_days?: number | null

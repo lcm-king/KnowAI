@@ -132,13 +132,13 @@ async def submit_seckill(
         .where(
             Order.user_id == current_user.id,
             OrderItem.sku_id == activity.sku_id,
-            Order.status.in_([OrderStatus.paid, OrderStatus.learning, OrderStatus.completed]),
+            Order.status.in_([OrderStatus.pending, OrderStatus.paid, OrderStatus.learning, OrderStatus.completed]),
         )
         .limit(1)
     )
     if existing_result.scalar_one_or_none() is not None:
         await redis.sadd(purchased_key, current_user.id)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已购买该课程")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已购买或已下单该课程")
 
     stock_key = STOCK_KEY.format(activity_id=activity_id)
     # Auto-preheat if Redis key is missing (e.g. after restart)

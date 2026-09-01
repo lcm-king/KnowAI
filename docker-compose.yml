@@ -16,6 +16,12 @@ services:
       - mysql_data:/var/lib/mysql
     networks:
       - knowai_net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   mongodb:
     image: mongo:6
@@ -27,6 +33,12 @@ services:
       - mongo_data:/data/db
     networks:
       - knowai_net
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   redis:
     image: redis:7-alpine
@@ -37,6 +49,12 @@ services:
       - redis_data:/data
     networks:
       - knowai_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   elasticsearch:
     image: elasticsearch:8.10.2
@@ -44,12 +62,27 @@ services:
     restart: unless-stopped
     environment:
       discovery.type: single-node
+      # xpack.security disabled: ES is NOT exposed on a host port (only the
+      # internal docker network can reach it). Enabling security would require
+      # bootstrapping a password and updating all clients; not worth the cost
+      # for an internal-only service. If you ever map 9200 to the host, flip
+      # this to "true" and configure ELASTIC_PASSWORD on all clients.
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: -Xms512m -Xmx512m
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
       - knowai_net
+    # Cap container memory so ES can't OOM-kill the rest of the stack on the
+    # low-memory server. Heap is 512m; the rest covers off-heap cache/segments.
+    mem_limit: 1g
+    mem_reservation: 768m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=2s || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -62,6 +95,12 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - knowai_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
   backend:
     build:
@@ -82,17 +121,35 @@ services:
       ELASTICSEARCH_HOST: elasticsearch
       ELASTICSEARCH_PORT: 9200
     depends_on:
-      - mysql
-      - mongodb
-      - redis
-      - elasticsearch
-      - rabbitmq
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    # Bind to localhost only: external traffic must go through the nginx
+    # frontend container (which applies security headers / rate limits).
+    # SSH-tunnel from the server itself still works for debugging /docs.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - uploads_data:/app/uploads
     networks:
       - knowai_net
+    # gunicorn (1 worker) + uvicorn + ML/tokenizer libs can spike under load.
+    # Cap memory so a runaway request can't OOM the whole server.
+    mem_limit: 1g
+    mem_reservation: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/',timeout=3).status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   frontend:
     build:
@@ -103,11 +160,18 @@ services:
     container_name: knowai_frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8080:80"
     networks:
       - knowai_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate --spider -q http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   mysql_data:

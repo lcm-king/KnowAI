@@ -41,6 +41,20 @@ async def toggle_favorite(
     return {"favorited": favorited, "message": "已收藏" if favorited else "已取消收藏"}
 
 
+@router.get("/ids")
+async def list_favorite_ids(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """Return all favorited course IDs for the current user.
+
+    Used by the frontend to batch-check favorite state on list pages instead of
+    issuing one /favorites/check/{id} request per card (N+1).
+    """
+    ids = await favorite_crud.list_favorite_course_ids(db, current_user)
+    return {"ids": ids}
+
+
 @router.get("/check/{course_id}")
 async def check_favorite(
     course_id: int,

@@ -1,0 +1,13 @@
+@startuml
+start
+:用户发送消息;
+:搜索所有课程知识库;
+:ChromaDB 向量检索 Top-K;
+:联网搜索补充实时信息(DuckDuckGo);
+:加载最近20条聊天历史(MongoDB);
+:构建 System Prompt + Context;
+:调用 LLM API(SiliconFlow/Qwen);
+:返回回答;
+:保存对话到 MongoDB;
+stop
+@enduml

@@ -44,7 +44,9 @@ export function applyTeacher(data: { name: string; bio?: string }) {
 }
 
 export function getMe() {
-  return request.get<unknown, UserInfo>('/auth/me')
+  // Session-restore on app boot is a background call - silent so it doesn't
+  // drive the global loading bar or pop error toasts on transient failures.
+  return request.get<unknown, UserInfo>('/auth/me', { timeout: 5000, silent: true })
 }
 
 export function logoutApi() {

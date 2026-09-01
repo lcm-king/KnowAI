@@ -178,6 +178,10 @@ class CourseDetailRead(CourseRead):
     seckill_activity_id: int | None = None
     seckill_price: Decimal | None = None
     seckill_end_time: datetime | None = None
+    # Real-time remaining stock for the seckill activity (read from Redis with
+    # fallback to the activity's initial stock). None when no active seckill.
+    # For seckill activities, stock=0 means sold out (NOT unlimited like SKU stock).
+    seckill_stock: int | None = None
     is_purchased: bool = False
 
 
@@ -301,7 +305,7 @@ class PayCreateResponse(BaseModel):
 
 class PayNotifyRequest(BaseModel):
     order_sn: str
-    pay_method: Literal["wechat", "alipay"] | None = None
+    pay_method: Literal["wechat", "alipay"]
     trade_no: str | None = None
     status: str = "success"
     sign: str | None = None

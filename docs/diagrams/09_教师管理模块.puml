@@ -1,0 +1,48 @@
+@startuml
+start
+:讲师登录;
+:进入讲师后台;
+if (已有课程?) then (否)
+  :创建新课程;
+else (是)
+  :编辑已有课程;
+endif
+:填写课程信息(标题/分类/价格/封面);
+repeat
+  :创建章节;
+  :创建课时(视频/时长);
+  :上传知识库文档;
+repeat while (继续添加章节?) is (是)
+
+partition "知识库处理" {
+  :上传文件;
+  if (文件类型?) then (TXT)
+    :直接读取内容;
+  else (PDF)
+    :PyPDFLoader 提取文本;
+  else (DOCX)
+    :docx2txt 提取文本;
+  endif
+  :文本分块 Chunk;
+  :计算 Embedding 向量;
+  :存入 ChromaDB;
+  :记录向量索引元数据;
+}
+
+partition "秒杀管理" {
+  :查看 SKU 列表;
+  :创建秒杀活动;
+  :设置秒杀价/库存/时间;
+  :提交管理员审核;
+}
+
+partition "销售统计" {
+  :查看销售看板;
+  :总销售额/订单数;
+  :热销课程排行;
+  :ECharts 图表展示;
+}
+
+:提交课程审核;
+stop
+@enduml

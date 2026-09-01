@@ -1,0 +1,67 @@
+@startuml
+start
+:用户登录;
+
+partition "登录流程" {
+  if (登录方式?) then (密码登录)
+    :输入账号/密码;
+    :bcrypt 验证密码哈希;
+  else (验证码登录)
+    :输入手机号;
+    :输入验证码;
+    :Redis 比对验证码;
+  endif
+
+  if (验证通过?) then (否)
+    :返回 401 错误;
+    stop
+  endif
+}
+
+partition "签发 Token" {
+  :生成 payload;
+  note right
+    sub=user_id
+    jti=uuid4
+    role=student/teacher/admin
+    iat=当前时间
+    exp=7天后
+  end note
+  :jwt.encode(payload, secret_key, algorithm);
+  :Redis 记录 token:{user_id}:{jti}=1;
+  :设置 Redis 过期时间(7天);
+}
+
+:返回 access_token 给前端;
+:前端存入 localStorage;
+
+partition "请求验证" {
+  :浏览器发起请求;
+  :从 Authorization Header 提取 Bearer token;
+  :JWT 解码验证签名;
+  if (签名有效?) then (否)
+    :返回 401;
+    stop
+  endif
+  :提取 user_id + jti;
+  :Redis 查询 token 是否有效;
+  if (Token 有效?) then (否)
+    :返回 401 已登出;
+    stop
+  endif
+  :从 MySQL 加载用户;
+  if (用户 active?) then (否)
+    :返回 401 已封禁;
+    stop
+  endif
+  :返回当前用户;
+}
+
+partition "登出/踢下线" {
+  :调用 /logout;
+  :Redis 删除 token 记录;
+  :前端清除 localStorage;
+}
+
+stop
+@enduml

@@ -1,0 +1,46 @@
+@startuml
+start
+:用户查看购物车;
+if (购物车为空?) then (是)
+  :显示空购物车;
+  stop
+else (否)
+  :展示 SKU 列表;
+endif
+
+repeat
+  :修改数量 / 删除商品 / 清空购物车;
+  :更新 Redis Hash;
+repeat while (继续操作?) is (是)
+->否;
+
+:点击"去结算";
+if (秒杀活动?) then (是)
+  :检查秒杀活动状态;
+  if (秒杀有效且库存充足?) then (是)
+    :使用秒杀价;
+  else (否)
+    :使用原价;
+  endif
+endif
+
+:获取 Redis 分布式锁(order:lock:{user_id});
+if (获取锁成功?) then (是)
+  :SELECT...FOR UPDATE 行锁查询 SKU;
+  if (库存 >= 数量?) then (是)
+    :扣减库存(sku.stock -= quantity);
+    :生成订单号 order_sn;
+    :创建订单记录;
+    :Redis 缓存订单号;
+    :创建 OrderItem;
+    :释放分布式锁;
+    :返回订单号;
+  else (否)
+    :释放分布式锁;
+    :返回库存不足;
+  endif
+else (否)
+  :返回 429 操作频繁;
+endif
+stop
+@enduml

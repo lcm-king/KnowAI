@@ -703,7 +703,9 @@ async def admin_refund_order(
     sku_map = {sku.id: sku for sku in sku_result.scalars().all()}
     for item in order.items:
         if item.sku_id in sku_map:
-            sku_map[item.sku_id].stock += item.quantity
+            # stock == 0 means unlimited; only restore if it's a limited-stock SKU
+            if sku_map[item.sku_id].stock > 0:
+                sku_map[item.sku_id].stock += item.quantity
 
     # Remove course access (UserCourse)
     from app.models import UserCourse

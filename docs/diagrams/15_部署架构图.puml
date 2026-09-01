@@ -1,0 +1,68 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+
+title 知学AI Docker 部署架构
+
+package "Docker Compose (knowai_net bridge)" {
+
+  [Nginx (frontend)] as nginx
+  note right of nginx
+    端口 8080:80
+    反向代理 /api/ → backend:8000
+    SPA 路由 try_files
+    静态缓存 7天
+  end note
+
+  [FastAPI (backend)] as backend
+  note right of backend
+    Gunicorn + Uvicorn
+    2 workers
+    Python 3.11
+    端口 8000
+  end note
+
+  [MySQL 8.0] as mysql
+  note right of mysql
+    核心业务数据
+    持久卷: knowai_mysql_data
+    端口不对外
+  end note
+
+  [Redis 7] as redis
+  note right of redis
+    缓存/秒杀/Token
+    AOF 持久化
+    端口不对外
+  end note
+
+  [MongoDB 6] as mongo
+  note right of mongo
+    学习进度/笔记/聊天
+    持久卷: knowai_mongo_data
+    端口不对外
+  end note
+
+  [Elasticsearch 8.10] as es
+  note right of es
+    课程全文搜索
+    IK 中文分词器
+    端口不对外
+  end note
+
+  [RabbitMQ] as mq
+  note right of mq
+    预留消息队列
+    端口不对外
+  end note
+
+}
+
+nginx -down-> backend : HTTP /api/
+backend -down-> mysql : SQLAlchemy async
+backend -down-> redis : Redis asyncio
+backend -down-> mongo : Motor async
+backend -down-> es : Elasticsearch DSL
+backend -down-> mq : 预留
+
+@enduml

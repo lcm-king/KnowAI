@@ -21,6 +21,10 @@ ALLOWED_DOCUMENT_TYPES = {
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+# Extension whitelist (lowercase, no dot) - defence in depth, since content_type can be forged
+ALLOWED_IMAGE_EXTS = {"jpg", "jpeg", "png", "gif", "webp"}
+ALLOWED_VIDEO_EXTS = {"mp4", "webm", "avi"}
+ALLOWED_DOCUMENT_EXTS = {"pdf", "txt", "md", "markdown", "doc", "docx"}
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 MAX_VIDEO_SIZE = 200 * 1024 * 1024  # 200MB
 MAX_DOCUMENT_SIZE = 50 * 1024 * 1024  # 50MB
@@ -40,8 +44,16 @@ def _ensure_upload_subdir(subdir: str) -> Path:
     return path
 
 
-def _save_upload(file: UploadFile, content: bytes, subdir: str) -> str:
-    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "bin"
+def _extract_ext(filename: str | None) -> str | None:
+    if not filename or "." not in filename:
+        return None
+    return filename.rsplit(".", 1)[-1].lower()
+
+
+def _save_upload(file: UploadFile, content: bytes, subdir: str, allowed_exts: set[str]) -> str:
+    ext = _extract_ext(file.filename)
+    if ext is None or ext not in allowed_exts:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"不允许的文件扩展名，仅支持: {', '.join(sorted(allowed_exts))}")
     filename = f"{uuid.uuid4().hex}.{ext}"
     save_dir = _ensure_upload_subdir(subdir)
     (save_dir / filename).write_bytes(content)
@@ -59,7 +71,7 @@ async def upload_cover(
     content = await file.read()
     if len(content) > MAX_IMAGE_SIZE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="图片大小超过 5MB 限制")
-    url = _save_upload(file, content, "covers")
+    url = _save_upload(file, content, "covers", ALLOWED_IMAGE_EXTS)
     return UploadResponse(url=url, filename=file.filename or "image", size=len(content))
 
 
@@ -74,7 +86,7 @@ async def upload_video(
     content = await file.read()
     if len(content) > MAX_VIDEO_SIZE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="视频大小超过 200MB 限制")
-    url = _save_upload(file, content, "videos")
+    url = _save_upload(file, content, "videos", ALLOWED_VIDEO_EXTS)
     return UploadResponse(url=url, filename=file.filename or "video", size=len(content))
 
 
@@ -89,5 +101,5 @@ async def upload_document(
     content = await file.read()
     if len(content) > MAX_DOCUMENT_SIZE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文档大小超过 50MB 限制")
-    url = _save_upload(file, content, "documents")
+    url = _save_upload(file, content, "documents", ALLOWED_DOCUMENT_EXTS)
     return UploadResponse(url=url, filename=file.filename or "document", size=len(content))

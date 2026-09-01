@@ -50,6 +50,20 @@ async def revoke_access_token(token: str, redis: Redis) -> None:
     await redis.delete(get_token_key(payload.user_id, payload.jti))
 
 
+async def revoke_all_user_tokens(user_id: int, redis: Redis) -> int:
+    """Delete all active tokens for a user. Returns count of deleted keys."""
+    pattern = f"token:{user_id}:*"
+    cursor = b"0"
+    deleted = 0
+    while True:
+        cursor, keys = await redis.scan(cursor=cursor, match=pattern, count=100)
+        if keys:
+            deleted += await redis.delete(*keys)
+        if cursor in (b"0", 0):
+            break
+    return deleted
+
+
 def decode_token(token: str) -> TokenData:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

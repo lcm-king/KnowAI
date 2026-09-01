@@ -1,0 +1,70 @@
+@startuml
+left to right direction
+actor "游客" as guest
+actor "学生" as student
+actor "教师" as teacher
+actor "管理员" as admin
+
+rectangle "课程" {
+  (浏览课程) as browse
+  (搜索课程) as search
+  (免费试看) as trial
+  (购买课程) as buy
+  (秒杀) as seckill
+  (课程评价) as review
+  (收藏) as favorite
+}
+
+rectangle "学习" {
+  (学习已购课程) as learn
+  (AI 对话) as ai_chat
+  (AI 批改/出题) as ai_grade
+}
+
+rectangle "管理" {
+  (教师后台) as teacher_panel
+  (上传课程) as upload
+  (管理员后台) as admin_panel
+  (审核管理) as audit
+  (系统配置) as config
+}
+
+guest -down-> browse
+guest -down-> search
+guest -down-> trial
+
+student -down-> browse
+student -down-> search
+student -down-> trial
+student -down-> buy
+student -down-> seckill
+student -down-> review
+student -down-> favorite
+student -down-> learn
+student -down-> ai_chat
+student -down-> ai_grade
+
+teacher -down-> browse
+teacher -down-> search
+teacher -down-> trial
+teacher -down-> buy
+teacher -down-> seckill
+teacher -down-> review
+teacher -down-> favorite
+teacher -down-> learn
+teacher -down-> ai_chat
+teacher -down-> ai_grade
+teacher -down-> teacher_panel
+teacher -down-> upload
+
+admin -down-> browse
+admin -down-> search
+admin -down-> trial
+admin -down-> learn
+admin -down-> ai_chat
+admin -down-> ai_grade
+admin -down-> upload
+admin -down-> admin_panel
+admin -down-> audit
+admin -down-> config
+@enduml

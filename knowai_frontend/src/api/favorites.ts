@@ -8,6 +8,12 @@ export function checkFavorite(courseId: number) {
   return request.get<unknown, { favorited: boolean }>(`/favorites/check/${courseId}`)
 }
 
+export function getFavoriteIds() {
+  // Background pre-fetch on app load - silent so it doesn't trigger the
+  // global loading bar or error toast if it fails.
+  return request.get<unknown, { ids: number[] }>('/favorites/ids', { silent: true })
+}
+
 export function listFavorites(params?: Record<string, unknown>) {
   return request.get<unknown, { total: number; items: Array<{
     id: number

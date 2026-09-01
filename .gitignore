@@ -36,3 +36,12 @@ uploads/
 # Chroma vector DB
 chroma_db/
 knowai_backend/chroma_db/
+
+# Node 前端
+node_modules/
+knowai_frontend/node_modules/
+knowai_frontend/dist/
+
+# 数据/日志
+*.log
+docker/mysql/*.sql.bak

@@ -1,0 +1,56 @@
+@startuml
+start
+:应用启动(lifespan);
+
+partition "startup 初始化" {
+  :init_db() 创建 MySQL 表;
+  :init_mongo() 连接 MongoDB + 创建索引;
+  :init_redis() 连接 Redis;
+  :init_es_index() 初始化 ES 索引;
+}
+
+partition "后台任务启动" {
+  fork
+    :秒杀消费者 Worker1;
+  fork again
+    :秒杀消费者 Worker2;
+  fork again
+    :秒杀消费者 Worker3;
+  fork again
+    :秒杀消费者 Worker4;
+  fork again
+    :秒杀消费者 Worker5;
+  fork again
+    :秒杀恢复(每60s);
+    note right
+      扫描 processing 列表
+      恢复崩溃 Worker 的卡住任务
+    end note
+  fork again
+    :订单过期扫描(每30s);
+    note right
+      查询超时未支付订单
+      恢复库存
+      取消订单
+    end note
+  fork again
+    :秒杀过期扫描(每30s);
+    note right
+      自动关闭过期秒杀活动
+    end note
+  fork again
+    :ES 同步(每60s);
+    note right
+      课程数据同步到 ES
+    end note
+  end fork
+}
+
+partition "shutdown 优雅关闭" {
+  :asyncio.Event() 通知退出;
+  :await asyncio.gather 等待所有任务;
+  :关闭数据库连接;
+}
+
+stop
+@enduml

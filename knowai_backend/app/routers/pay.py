@@ -137,10 +137,14 @@ async def pay_notify(
     redis: Annotated[Redis, Depends(get_redis)],
 ) -> dict[str, str]:
     data = payload.model_dump()
-    if payload.pay_method == "wechat" and not verify_wechat_notify(data):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效签名")
-    if payload.pay_method == "alipay" and not verify_alipay_notify(data):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效签名")
+    if payload.pay_method == "wechat":
+        if not verify_wechat_notify(data):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效签名")
+    elif payload.pay_method == "alipay":
+        if not verify_alipay_notify(data):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效签名")
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未知支付方式")
     if payload.status != "success":
         return {"message": "ignored"}
 

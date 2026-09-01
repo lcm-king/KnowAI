@@ -220,14 +220,12 @@ function originalPrice(course: Course): string {
   return `¥${max}`
 }
 
-function minStock(course: Course): number {
-  const paid = (course.skus || []).filter((s) => Number(s.price) > 0)
-  if (!paid.length) return 999
-  return Math.min(...paid.map((s) => s.stock))
-}
-
 function stockLabel(course: Course): string {
-  const stock = minStock(course)
+  // Use real-time seckill remaining stock from Redis (via backend), not the
+  // SKU's stock field (which is 0=unlimited or 9999 default - meaningless).
+  const stock = course.seckill_stock
+  if (stock == null) return '限时秒杀'
+  if (stock <= 0) return '已售罄'
   if (stock <= 10) return `仅剩 ${stock} 份`
   if (stock <= 50) return '即将售罄'
   if (stock <= 200) return '火热抢购中'
@@ -235,8 +233,11 @@ function stockLabel(course: Course): string {
 }
 
 function stockPercent(course: Course): string {
-  const stock = minStock(course)
-  const pct = Math.min(95, Math.max(10, 100 - stock / 10))
+  // Progress bar reflects how close to sold-out: lower remaining stock = fuller bar.
+  const stock = course.seckill_stock
+  if (stock == null || stock <= 0) return '100%'
+  // stock=200 -> 10%, stock=10 -> 95%, stock=1 -> 95% (clamped)
+  const pct = Math.min(95, Math.max(10, 100 - stock / 2))
   return `${pct}%`
 }
 

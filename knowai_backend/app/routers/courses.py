@@ -52,8 +52,21 @@ async def invalidate_homepage_cache(redis: Redis) -> None:
     await redis.delete(HOMEPAGE_CACHE_KEY)
 
 
-async def attach_seckill_bulk(db: AsyncSession, courses: list[Course]) -> list[CourseDetailRead]:
-    """Attach seckill data to all courses in a single batch query."""
+# Must match STOCK_KEY in routers/seckill.py - kept duplicated to avoid cross-router imports.
+SECKILL_STOCK_KEY_FMT = "seckill:stock:{activity_id}"
+
+
+async def attach_seckill_bulk(
+    db: AsyncSession,
+    courses: list[Course],
+    redis: Redis | None = None,
+) -> list[CourseDetailRead]:
+    """Attach seckill data to all courses in a single batch query.
+
+    When redis is provided, also fetch the real-time remaining stock for each
+    activity (falls back to the activity's initial stock if the Redis key
+    hasn't been preheated yet).
+    """
     if not courses:
         return []
 
@@ -78,6 +91,21 @@ async def attach_seckill_bulk(db: AsyncSession, courses: list[Course]) -> list[C
         if cid not in seckill_map:
             seckill_map[cid] = act
 
+    # Batch-fetch remaining stock from Redis (single MGET). Keys that haven't
+    # been preheated return None; we fall back to activity.stock (initial).
+    remaining_map: dict[int, int] = {}
+    if redis is not None and seckill_map:
+        stock_keys = [SECKILL_STOCK_KEY_FMT.format(activity_id=act.id) for act in seckill_map.values()]
+        remaining_values = await redis.mget(stock_keys)
+        for act, val in zip(seckill_map.values(), remaining_values):
+            if val is None:
+                remaining_map[act.id] = act.stock
+            else:
+                try:
+                    remaining_map[act.id] = int(val)
+                except (TypeError, ValueError):
+                    remaining_map[act.id] = act.stock
+
     items: list[CourseDetailRead] = []
     for course in courses:
         item = CourseDetailRead.model_validate(course)
@@ -86,14 +114,27 @@ async def attach_seckill_bulk(db: AsyncSession, courses: list[Course]) -> list[C
             item.seckill_activity_id = activity.id
             item.seckill_price = activity.seckill_price
             item.seckill_end_time = activity.end_time
+            item.seckill_stock = remaining_map.get(activity.id, activity.stock)
         items.append(item)
     return items
 
 
-async def attach_seckill(db: AsyncSession, course: Course) -> CourseDetailRead:
+async def attach_seckill(db: AsyncSession, course: Course, redis: Redis | None = None) -> CourseDetailRead:
     """Attach seckill for a single course (used by course detail page)."""
-    items = await attach_seckill_bulk(db, [course])
+    items = await attach_seckill_bulk(db, [course], redis)
     return items[0]
+
+
+def _strip_paid_video_url(item: CourseDetailRead) -> CourseDetailRead:
+    """Null out video_url on a course detail response.
+
+    The Course.video_url field is the full course video, not a public trailer.
+    The frontend only renders <video> after purchase, but the URL was still
+    present in the JSON response - anyone with F12 could grab it. This must
+    be called for every response path that doesn't verify purchase.
+    """
+    item.video_url = None
+    return item
 
 
 @router.get("/seckill", response_model=list[CourseDetailRead])
@@ -108,7 +149,11 @@ async def list_seckill_courses(
         return [CourseDetailRead(**item) for item in json.loads(cached)]
 
     courses = await course_crud.list_seckill_courses(db, limit=10)
-    items = await attach_seckill_bulk(db, courses)
+    items = await attach_seckill_bulk(db, courses, redis)
+    # Seckill list page never displays course videos - strip URL before caching
+    # so the leak doesn't persist in Redis for the cache TTL.
+    for item in items:
+        _strip_paid_video_url(item)
     await redis.setex(cache_key, 30, json.dumps([i.model_dump(mode="json") for i in items], default=str))
     return items
 
@@ -130,7 +175,10 @@ async def list_courses(
             return cached
 
     total, courses = await course_crud.list_public_courses(db, page, page_size, category, keyword, price_sort)
-    items = await attach_seckill_bulk(db, courses)
+    items = await attach_seckill_bulk(db, courses, redis)
+    # Course list page never displays course videos - strip URL before caching.
+    for item in items:
+        _strip_paid_video_url(item)
     response = CourseDetailListResponse(total=total, items=items)
 
     # Update cache for homepage listing
@@ -220,7 +268,8 @@ async def get_course_detail(
     redis: Annotated[Redis, Depends(get_redis)],
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> CourseDetailRead:
-    # Cache course detail for anonymous users
+    # Cache course detail for anonymous users (anonymous = never purchased, so
+    # the cached payload has video_url already stripped).
     cache_key = f"course:detail:{course_id}"
     if current_user is None:
         cached = await redis.get(cache_key)
@@ -230,10 +279,9 @@ async def get_course_detail(
     course = await course_crud.get_public_course_detail(db, course_id)
     if course is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="课程不存在")
-    item = await attach_seckill(db, course)
+    item = await attach_seckill(db, course, redis)
     # Track popularity in Redis ZSet
     await redis.zincrby("top:courses", 1, str(course_id))
-    # Check if current user has purchased this course
     if current_user is not None:
         uc_result = await db.execute(
             select(UserCourse).where(
@@ -242,8 +290,12 @@ async def get_course_detail(
             )
         )
         item.is_purchased = uc_result.scalar_one_or_none() is not None
+        # Strip full-course video URL unless the user actually owns the course.
+        if not item.is_purchased:
+            _strip_paid_video_url(item)
     else:
-        # Cache anonymous response for 60s
+        # Anonymous user: strip and cache the stripped version for 60s
+        _strip_paid_video_url(item)
         raw = item.model_dump(mode="json")
         await redis.setex(cache_key, 60, json.dumps(raw, default=str))
     return item
@@ -290,11 +342,10 @@ async def get_course_chapters(
         user_courses = list(uc_result.scalars().all())
         has_paid = any(uc.sku and uc.sku.price > 0 for uc in user_courses)
 
-    # 纯免费课程(无付费 SKU)所有课时开放;付费课程非购买者仅前 3 课时试看
+    # 纯免费课程(无付费 SKU)所有课时开放;付费课程必须购买才能看任何课时视频
+    # (原先的"前3课时免费试看"已被移除--未购买用户能拿到视频 URL 直接播放，
+    #  属于权限绕过。课程介绍页的 cover/description 仍可作为购买决策依据。)
     free_course = not has_paid_sku
-    all_lessons = [lesson for chapter in chapters for lesson in chapter.lessons]
-    all_lessons.sort(key=lambda l: l.sort_order)
-    free_limit = 3  # first 3 lessons for free trial
 
     result_chapters: list[ChapterRead] = []
     for ch in chapters:
@@ -307,14 +358,9 @@ async def get_course_chapters(
             lessons=[],
         )
         for lesson in lessons:
-            is_locked = False
-            if not free_course and not has_paid:
-                # Find the global index of this lesson among all sorted lessons
-                try:
-                    idx = all_lessons.index(lesson)
-                    is_locked = idx >= free_limit
-                except ValueError:
-                    is_locked = True
+            # Paid course + not purchased -> every lesson locked, no video URL leaked.
+            # Free course -> all lessons unlocked.
+            is_locked = (not free_course) and (not has_paid)
             chapter_read.lessons.append(
                 LessonRead(
                     id=lesson.id,

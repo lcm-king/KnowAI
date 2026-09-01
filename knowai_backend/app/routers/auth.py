@@ -1,12 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from redis.asyncio import Redis
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import authenticate_user, create_user_access_token, get_current_user, get_password_hash, revoke_access_token, verify_password
+from app.auth import authenticate_user, create_user_access_token, get_current_user, get_password_hash, revoke_access_token, revoke_all_user_tokens, verify_password
 from app.config import settings
 from app.crud import user_crud
 from app.database import get_db, get_redis
@@ -21,7 +21,7 @@ COOLDOWN_PREFIX = "verify:cooldown:"
 COOLDOWN_SECONDS = 60  # 同一目标 60s 内只能请求一次验证码
 
 
-import random
+import secrets
 
 from app.services.cloopen_sms import get_sms_client
 
@@ -37,7 +37,7 @@ async def _check_and_set_cooldown(redis: Redis, target: str) -> None:
 
 
 async def _send_code(redis: Redis, target: str) -> str:
-    code = str(random.randint(1000, 9999))
+    code = str(secrets.randbelow(9000) + 1000)
     await redis.setex(f"{CODE_PREFIX}{target}", CODE_TTL, code)
     sms = get_sms_client()
     if sms and sms.enabled and settings.sms_mock is False:
@@ -225,10 +225,17 @@ async def login(
 
 @router.post("/logout")
 async def logout(
-    token: Annotated[str, Depends(oauth2_scheme)],
     redis: Annotated[Redis, Depends(get_redis)],
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
-    await revoke_access_token(token, redis)
+    """退出登录（幂等：token 缺失/已失效也返回成功，避免 401 触发前端拦截器死循环）。"""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        if token:
+            try:
+                await revoke_access_token(token, redis)
+            except Exception:
+                pass
     return {"message": "退出成功"}
 
 
@@ -266,6 +273,7 @@ async def change_password(
     payload: PasswordChangeRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis)],
 ) -> dict[str, str]:
     if not verify_password(payload.old_password, current_user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="原密码错误")
@@ -273,7 +281,9 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能与原密码相同")
     current_user.password_hash = get_password_hash(payload.new_password)
     await db.commit()
-    return {"message": "密码修改成功"}
+    # Revoke all existing tokens so the user must re-login on all devices
+    await revoke_all_user_tokens(current_user.id, redis)
+    return {"message": "密码修改成功，请重新登录"}
 
 
 @router.put("/avatar", response_model=UserRead)

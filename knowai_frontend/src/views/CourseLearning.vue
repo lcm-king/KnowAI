@@ -241,9 +241,14 @@ onMounted(async () => {
       } catch {
         // ignore, fall through to auto-select first unlocked
       }
-      // Fallback: auto-select first unlocked lesson
+      // Fallback: auto-select first unlocked lesson, or first locked lesson so
+      // the locked-overlay shows immediately for non-purchased users.
       const firstUnlocked = chapterData[0].lessons.find(l => !l.is_locked)
-      if (firstUnlocked) currentLesson.value = firstUnlocked
+      if (firstUnlocked) {
+        currentLesson.value = firstUnlocked
+      } else if (chapterData[0].lessons.length > 0) {
+        currentLesson.value = chapterData[0].lessons[0]
+      }
     }
   } catch {
     loadError.value = '加载课程内容失败'

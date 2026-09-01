@@ -1,0 +1,56 @@
+@startuml
+start
+partition "准备阶段" {
+  :管理员创建秒杀活动;
+  :Redis 预热库存(seckill:stock:ID=库存量);
+}
+
+partition "用户秒杀请求" {
+  :用户点击"立即秒杀";
+  :令牌桶全局限流(100rps);
+  if (限流通过?) then (否)
+    :提示"人数过多";
+    stop
+  endif
+  :用户级别限流(1次/s);
+  if (通过?) then (否)
+    :提示"操作太频繁";
+    stop
+  endif
+  :Redis DECR 原子扣减库存;
+  if (库存 > 0?) then (否)
+    :Redis INCR 恢复库存;
+    :提示"已售罄";
+    stop
+  endif
+  :订单信息推送到 Redis 队列;
+  :返回排队 ID 给用户;
+}
+
+partition "异步 Worker(5个)" {
+  :BLMOVE 从队列弹出订单;
+  :MySQL 行锁 FOR UPDATE;
+  if (库存足够?) then (否)
+    :标记失败:已售罄;
+  else (是)
+    :创建订单 + OrderItem;
+    :标记成功并记录 SN;
+  endif
+  :记录秒杀结果到 Redis;
+}
+
+partition "前端轮询" {
+  :调用 GET /seckill/result;
+  :指数退避等待(1s→10s);
+  if (已出结果?) then (否)
+    :继续轮询;
+  else (是)
+    if (成功?) then (是)
+      :跳转到支付页;
+    else (否)
+      :显示失败原因;
+    endif
+  endif
+}
+stop
+@enduml

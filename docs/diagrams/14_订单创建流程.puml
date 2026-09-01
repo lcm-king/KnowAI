@@ -1,0 +1,40 @@
+@startuml
+start
+:用户点击"去结算";
+:获取 Redis 分布式锁(order:lock:{user_id});
+
+if (SET NX EX 5 成功?) then (否)
+  :返回 429 操作频繁;
+  stop
+endif
+
+:检查秒杀活动状态;
+if (秒杀有效?) then (是)
+  :使用秒杀价;
+else (否)
+  :使用原价;
+endif
+
+:SELECT...FOR UPDATE 行锁查询 SKU;
+if (库存 >= 数量?) then (否)
+  :释放 Redis 分布式锁;
+  :返回 400 库存不足;
+  stop
+endif
+
+:扣减库存(sku.stock -= quantity);
+:生成 order_sn;
+:计算总金额 pay_amount;
+:设置过期时间(now + 30min);
+
+partition "事务提交" {
+  :创建 Order 记录;
+  :创建 OrderItem 记录;
+  :db.commit();
+}
+
+:Redis 缓存订单号;
+:释放 Redis 分布式锁;
+:返回 order_sn 和支付 URL;
+stop
+@enduml

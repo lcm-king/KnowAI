@@ -1,0 +1,52 @@
+@startuml
+start
+:用户请求支付;
+if (支付模式?) then (支付宝)
+  :调用支付宝 SDK 创建交易;
+  :获取支付宝表单/二维码;
+else (模拟支付)
+  :生成模拟支付二维码;
+  :后台 5 秒后自动确认支付;
+else (微信)
+  :返回模拟二维码(未接入);
+endif
+
+:展示支付页面;
+:用户扫码支付;
+
+partition "前端轮询" {
+  :调用 GET /pay/status/{sn};
+  if (订单已支付?) then (是)
+    :跳转到学习页面;
+    stop
+  else (否)
+    if (超时 30 分钟?) then (是)
+      :订单自动取消;
+      stop
+    else (否)
+      :等待 2 秒;
+    endif
+  endif
+  ->继续轮询;
+}
+
+partition "支付宝异步回调" {
+  :支付宝 POST 异步通知;
+  :验证签名;
+  if (签名有效?) then (是)
+    :更新订单状态为 paid;
+    :清空购物车相关商品;
+    :创建 UserCourse 记录;
+    :返回 "success" 给支付宝;
+  else (否)
+    :忽略通知;
+  endif
+}
+
+partition "订单超时扫描(每30s)" {
+  :查询超时未支付订单;
+  :恢复 SKU 库存;
+  :取消订单(status=cancelled);
+}
+stop
+@enduml

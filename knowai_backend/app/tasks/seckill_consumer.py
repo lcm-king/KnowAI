@@ -143,9 +143,11 @@ async def _process_item(raw_item: str) -> None:
                 # Check & decrement SKU stock
                 sku_result = await db.execute(select(CourseSKU).where(CourseSKU.id == activity.sku_id).with_for_update())
                 sku = sku_result.scalar_one()
-                if sku.stock < activity.limit_quantity:
+                # stock == 0 means unlimited (same as regular order logic)
+                if sku.stock > 0 and sku.stock < activity.limit_quantity:
                     raise ValueError("SKU 库存不足")
-                sku.stock -= activity.limit_quantity
+                if sku.stock > 0:
+                    sku.stock -= activity.limit_quantity
 
                 # Decrement seckill activity stock (DB-side tracking)
                 activity.stock -= activity.limit_quantity

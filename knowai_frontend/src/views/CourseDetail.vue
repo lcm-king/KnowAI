@@ -50,8 +50,7 @@
                 <span class="sku-price">¥{{ sku.price }}</span>
               </div>
               <div class="sku-sub">
-                <span>{{ Number(sku.price) > 0 ? '可永久观看' : (allSkusFree ? '永久免费' : '试看3课时') }}</span>
-                <span>库存 {{ sku.stock }}</span>
+                <span>{{ Number(sku.price) > 0 ? '可永久观看' : (allSkusFree ? '永久免费' : '免费观看') }}</span>
               </div>
             </div>
           </div>
@@ -203,16 +202,21 @@
       <aside class="purchase-side">
         <div class="purchase-card">
           <div class="pc-cover">
-            <video v-if="course.video_url && course.is_purchased" :src="course.video_url" controls class="pc-video" preload="metadata">
-              您的浏览器不支持视频播放
-            </video>
-            <el-image v-else :src="course.cover || ''" fit="cover">
+            <el-image :src="course.cover || ''" fit="cover">
               <template #error>
                 <div class="cover-fallback">
                   <span class="material-symbols-outlined">menu_book</span>
                 </div>
               </template>
             </el-image>
+            <RouterLink
+              v-if="course.is_purchased"
+              :to="`/learn/${course.id}`"
+              class="pc-play-overlay"
+              aria-label="进入学习"
+            >
+              <span class="material-symbols-outlined">play_circle</span>
+            </RouterLink>
           </div>
 
           <div class="pc-price">
@@ -265,7 +269,7 @@
               <span class="material-symbols-outlined">check_circle</span> 永久免费
             </div>
             <div v-else class="pcf-item">
-              <span class="material-symbols-outlined">preview</span> 试看3课时
+              <span class="material-symbols-outlined">lock</span> 购买后解锁
             </div>
             <div class="pcf-item">
               <span class="material-symbols-outlined">devices</span> 多端学习
@@ -472,6 +476,7 @@ async function startSeckill() {
       await new Promise((resolve) => window.setTimeout(resolve, delay))
       if (!seckillPolling.value) return
       const result = await getSeckillResult(queue.queue_id)
+      if (!seckillPolling.value) return
       if (result.status === 'success' && result.order_sn) {
         toast.close()
         ElMessage.success(result.message || '秒杀成功')
@@ -489,10 +494,10 @@ async function startSeckill() {
       delay = Math.min(delay * 1.5, maxDelay)
     }
   } catch {
-    toast.close()
+    if (seckillPolling.value) toast.close()
     // error already shown by axios interceptor
   } finally {
-    seckillPolling.value = false
+    if (seckillPolling.value) seckillPolling.value = false
   }
 }
 
@@ -860,9 +865,22 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.pc-cover { height: 180px; }
+.pc-cover { height: 180px; position: relative; }
 .pc-cover .el-image { width: 100%; height: 100%; }
-.pc-video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+.pc-play-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  transition: opacity 0.2s;
+  text-decoration: none;
+}
+.pc-cover:hover .pc-play-overlay { opacity: 1; }
+.pc-play-overlay .material-symbols-outlined {
+  font-size: 56px;
+  color: #fff;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+}
 
 .pc-price { padding: 20px 20px 0; display: flex; align-items: baseline; gap: 10px; }
 .pc-seckill-price { font-size: 28px; font-weight: 800; color: var(--primary); }
